@@ -2,6 +2,13 @@
 const $ = (id) => document.getElementById(id);
 const canvas = $("map"),
   ctx = canvas.getContext("2d");
+const sectorTile = document.createElement("canvas");
+sectorTile.width = sectorTile.height = 8;
+const tileContext = sectorTile.getContext("2d");
+tileContext.fillStyle = "rgba(4, 10, 19, 0.28)";
+tileContext.fillRect(0, 0, 8, 1);
+tileContext.fillRect(0, 0, 1, 8);
+const sectorGrid = ctx.createPattern(sectorTile, "repeat");
 const state = { x: "d:1", y: "d:1", xo: 0, yo: 0, metric: "allocated" };
 const saved = new URLSearchParams(location.search);
 for (const key of ["x", "y", "metric"])
@@ -117,6 +124,10 @@ function draw() {
           ? "#8974b6"
           : mix([245, 240, 226], [192, 73, 45], cell.similarity);
       ctx.fillRect(x, y, cw, ch);
+      if (!cell.overlap) {
+        ctx.fillStyle = sectorGrid;
+        ctx.fillRect(x, y, cw, ch);
+      }
       ctx.strokeStyle = "#fffdf8";
       ctx.lineWidth = 0.8;
       ctx.strokeRect(x, y, cw, ch);

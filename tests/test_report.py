@@ -237,7 +237,9 @@ class ReportTests(unittest.TestCase):
             with urlopen(url + 'api/covered') as response:
                 self.assertEqual(json.load(response)['total'], 2)
             with urlopen(url) as response:
-                self.assertIn(b'Deckard', response.read())
+                html = response.read()
+                self.assertIn(b'Deckard', html)
+                self.assertNotIn(b'id="sectors"', html)
                 self.assertIn("default-src 'self'", response.headers['Content-Security-Policy'])
             for suffix, status in (('report.sqlite3', 404), ('api/view?metric=invalid', 400)):
                 with self.assertRaises(HTTPError) as error:

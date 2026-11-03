@@ -65,6 +65,9 @@ Scroll or use +/- to zoom, drag to pan, click a band to navigate one axis, and
 double-click a cell to explore both axes. Small items remain accessible through
 expandable remainder bands and the item list.
 
+A fixed-pixel block grid is always enabled; file and folder sizes determine the
+matrix geometry.
+
 Teal marks folders whose file contents all occur outside that folder, possibly
 spread across locations. Purple identifies complete coverage by one disjoint
 counterpart. **Find keeper** distinguishes single-location coverage from
