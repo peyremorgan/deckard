@@ -30,7 +30,7 @@ QLabel#brand { background: #152c50; color: #fff; font-size: 16px; font-weight: 7
 QLabel#section { background: #737e8d; color: #fff; font-size: 11px; font-weight: 700; padding: 4px 6px; }
 QLabel#title { font-size: 18px; font-weight: 700; }
 QLabel#path { font-family: monospace; font-size: 11px; color: #283848; }
-QLabel#metric { background: #101b2a; color: #6ae1bb; font-family: monospace; font-size: 20px; padding: 5px 8px; }
+QLabel#metric { background: #101b2a; color: #6ae1bb; font-family: Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace; font-size: 20px; padding: 5px 8px; }
 QLabel#metric-label { font-size: 10px; font-weight: 700; color: #3f4a58; }
 QFrame#card, QGroupBox { background: #d6d9dd; border: 1px solid #858d97; border-top-color: #fff; border-left-color: #fff; border-radius: 0; }
 QGroupBox { padding: 16px 10px 10px; margin-top: 8px; } QGroupBox::title { subcontrol-origin: margin; left: 9px; padding: 0 4px; color: #172c4a; font-weight: 700; }
