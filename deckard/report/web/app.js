@@ -104,6 +104,9 @@ function boundaries() {
 function draw() {
   layout = boundaries();
   const { w, h, band, side } = layout;
+  // Positive offsets would expose negative matrix coordinates.
+  panX = Math.min(0, panX);
+  panY = Math.min(0, panY);
   ctx.fillStyle = "#0b111b";
   ctx.fillRect(0, 0, w, h);
   if (!view) return;
