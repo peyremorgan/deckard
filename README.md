@@ -76,7 +76,7 @@ Hold **Shift** to pause hover while moving to the right panel. Release it outsid
 the map to interact with the current details; hover resumes when you move over
 the map without Shift.
 Shift+click a cell or axis band to freeze its selection, then move to the right
-panel to use **Open comparison** or read its details. **Space** over the map or
+panel to use **Show in matrix** or read its details. **Space** over the map or
 **Freeze selection** also freezes the current selection; **Escape** or
 **Resume hover** restores hover updates. Opening a new view clears the freeze.
 For local scans in the desktop app, **Open in Finder** on macOS or
