@@ -223,6 +223,10 @@ class ReportTests(unittest.TestCase):
         self.add('A/a', 10, content='x')
         self.add('B/b', 10, content='x')
         self.generate()
+        # Archived UI assets stay untouched; opening its data uses the current
+        # application viewer, including newly introduced controls.
+        archived_html = b'<title>Archived UI</title>'
+        (self.output / 'index.html').write_bytes(archived_html)
         proc = subprocess.Popen([sys.executable, '-u', '-m', 'deckard.report', 'serve',
                                  '--report-dir', str(self.output), '--port', '0'],
                                 cwd=str(Path(__file__).resolve().parents[1]),
@@ -239,8 +243,11 @@ class ReportTests(unittest.TestCase):
             with urlopen(url) as response:
                 html = response.read()
                 self.assertIn(b'Deckard', html)
+                self.assertIn(b'id="metric"', html)
                 self.assertNotIn(b'id="sectors"', html)
+                self.assertNotIn(b'Archived UI', html)
                 self.assertIn("default-src 'self'", response.headers['Content-Security-Policy'])
+            self.assertEqual((self.output / 'index.html').read_bytes(), archived_html)
             for suffix, status in (('report.sqlite3', 404), ('api/view?metric=invalid', 400)):
                 with self.assertRaises(HTTPError) as error:
                     urlopen(url + suffix)

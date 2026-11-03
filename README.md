@@ -65,8 +65,10 @@ Scroll or use +/- to zoom, drag to pan, click a band to navigate one axis, and
 double-click a cell to explore both axes. Small items remain accessible through
 expandable remainder bands and the item list.
 
+The desktop and report viewer use compact industrial panels and a dark matrix.
 A fixed-pixel block grid is always enabled; file and folder sizes determine the
-matrix geometry.
+matrix geometry. Existing report data opens with the app's current viewer;
+archived HTML/CSS/JavaScript files remain untouched.
 
 Teal marks folders whose file contents all occur outside that folder, possibly
 spread across locations. Purple identifies complete coverage by one disjoint

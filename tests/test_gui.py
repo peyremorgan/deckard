@@ -86,6 +86,10 @@ def test_gui_local_scan_opens_embedded_map(app, tmp_path):
         assert window.detail_pages.currentIndex() == 1
         assert 'embedded=1' in window.web.url().query()
         assert window.pause.isHidden()
+        interaction = []
+        window.web.page().runJavaScript("document.getElementById('zoom-in').click(); document.getElementById('zoom').textContent", interaction.append)
+        until(app, lambda: bool(interaction))
+        assert interaction == ['150%']
         window.grab().save(str(tmp_path / 'desktop.png'))
     finally:
         window.close(); app.processEvents()

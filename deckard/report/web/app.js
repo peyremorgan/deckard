@@ -72,6 +72,12 @@ function mix(a, b, t) {
       .join("")
   );
 }
+function heat(value) {
+  const stops = [[21,42,72], [40,101,170], [41,191,213], [228,203,101], [235,128,66]];
+  const position = Math.max(0, Math.min(1, value)) * (stops.length - 1);
+  const index = Math.min(stops.length - 2, Math.floor(position));
+  return mix(stops[index], stops[index + 1], position - index);
+}
 function boundaries() {
   const r = canvas.getBoundingClientRect(),
     dpr = window.devicePixelRatio || 1;
@@ -89,7 +95,7 @@ function boundaries() {
 function draw() {
   layout = boundaries();
   const { w, h, band, side } = layout;
-  ctx.fillStyle = "#fffdf8";
+  ctx.fillStyle = "#0b111b";
   ctx.fillRect(0, 0, w, h);
   if (!view) return;
   const xx = offsets(view.x.items, view.x.total),
@@ -119,27 +125,27 @@ function draw() {
         continue;
       const cell = view.cells[a][b];
       ctx.fillStyle = cell.overlap
-        ? "#eceee5"
+        ? "#172333"
         : cell.x_in_single || cell.y_in_single
-          ? "#8974b6"
-          : mix([245, 240, 226], [192, 73, 45], cell.similarity);
+          ? "#7d5cc5"
+          : heat(cell.similarity);
       ctx.fillRect(x, y, cw, ch);
       if (!cell.overlap) {
         ctx.fillStyle = sectorGrid;
         ctx.fillRect(x, y, cw, ch);
       }
-      ctx.strokeStyle = "#fffdf8";
-      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = "#6c7f96";
+      ctx.lineWidth = 1;
       ctx.strokeRect(x, y, cw, ch);
       if (cell.overlap && cw > 18 && ch > 18) {
         ctx.save();
         ctx.beginPath();
         ctx.rect(x, y, cw, ch);
         ctx.clip();
-        ctx.strokeStyle = "#d8decf";
+        ctx.strokeStyle = "#35465c";
         ctx.lineWidth = 1;
         ctx.beginPath();
-        for (let p = -ch; p < cw; p += 13) {
+        for (let p = -ch; p < cw; p += 8) {
           ctx.moveTo(x + p, y + ch);
           ctx.lineTo(x + p + ch, y);
         }
@@ -147,23 +153,18 @@ function draw() {
         ctx.restore();
       }
       if (cw > 72 && ch > 43) {
-        ctx.fillStyle =
-          cell.x_in_single || cell.y_in_single
-            ? "#fff"
-            : cell.similarity > 0.6
-              ? "#fff9ef"
-              : "#6f6d5d";
+        ctx.fillStyle = !cell.overlap && !cell.x_in_single && !cell.y_in_single && cell.similarity > 0.4 ? "#081b2c" : "#e2eeff";
         ctx.textAlign = "center";
         ctx.font =
-          "500 " + Math.min(22, cw / 5, ch / 3) + "px -apple-system,sans-serif";
+          "bold " + Math.min(17, cw / 5, ch / 3) + "px Menlo,Consolas,monospace";
         ctx.fillText(
-          cell.overlap ? "↗" : pct(cell.similarity),
+          cell.overlap ? "—" : pct(cell.similarity),
           x + cw / 2,
           y + ch / 2 + 5,
         );
       }
       if (hover && hover.a === a && hover.b === b) {
-        ctx.strokeStyle = "#2c4336";
+        ctx.strokeStyle = "#ffffc4";
         ctx.lineWidth = 2;
         ctx.strokeRect(x + 1, y + 1, cw - 2, ch - 2);
       }
@@ -189,13 +190,13 @@ function draw() {
         y = axis === "x" ? 0 : start,
         cw = axis === "x" ? len : band - 5,
         ch = axis === "x" ? band - 5 : len;
-      ctx.fillStyle = i % 2 ? "#e5e9dc" : "#dce3d3";
+      ctx.fillStyle = i % 2 ? "#263b56" : "#203149";
       ctx.fillRect(x, y, cw, ch);
-      ctx.strokeStyle = "#fffdf8";
+      ctx.strokeStyle = "#74859b";
       ctx.lineWidth = 1;
       ctx.strokeRect(x, y, cw, ch);
       if (item.kind === "folder" && item.covered_elsewhere) {
-        ctx.fillStyle = "#318d80";
+        ctx.fillStyle = "#23b989";
         ctx.fillRect(x, y, axis === "x" ? cw : 4, axis === "x" ? 4 : ch);
       }
       if (len > 34) {
@@ -203,18 +204,18 @@ function draw() {
         ctx.beginPath();
         ctx.rect(x + 3, y + 3, Math.max(0, cw - 6), Math.max(0, ch - 6));
         ctx.clip();
-        ctx.fillStyle = "#42523f";
+        ctx.fillStyle = "#e0eaf8";
         ctx.textAlign = "center";
-        ctx.font = "11px -apple-system,sans-serif";
+        ctx.font = "11px Menlo,Consolas,monospace";
         if (axis === "x") {
           ctx.fillText(item.name, x + cw / 2, y + ch * 0.46);
-          ctx.font = "9px -apple-system,sans-serif";
+          ctx.font = "9px Menlo,Consolas,monospace";
           ctx.fillText(bytes(item.weight), x + cw / 2, y + ch * 0.72);
         } else {
           ctx.translate(x + cw * 0.45, y + ch / 2);
           ctx.rotate(-Math.PI / 2);
           ctx.fillText(item.name, 0, 0);
-          ctx.font = "9px -apple-system,sans-serif";
+          ctx.font = "9px Menlo,Consolas,monospace";
           ctx.fillText(bytes(item.weight), 0, 14);
         }
         ctx.restore();
@@ -222,11 +223,11 @@ function draw() {
     });
     ctx.restore();
   }
-  ctx.strokeStyle = "#cbd3c2";
+  ctx.strokeStyle = "#74859b";
   ctx.lineWidth = 1;
   ctx.strokeRect(band, band, side, side);
-  ctx.fillStyle = "#63765c";
-  ctx.font = "10px -apple-system,sans-serif";
+  ctx.fillStyle = "#afc5e2";
+  ctx.font = "10px Menlo,Consolas,monospace";
   ctx.textAlign = "center";
   ctx.fillText("Y ↕", band * 0.45, band * 0.45);
   ctx.fillText("X →", band * 0.45, band * 0.7);
@@ -274,8 +275,6 @@ function inspect(hit) {
   if (hit.axis) {
     const item = view[hit.axis].items[hit.index];
     $("selection").textContent = item.name;
-    $("hint").textContent =
-      "Click this band to open its " + hit.axis.toUpperCase() + " axis.";
     const dl = document.createElement("dl");
     dl.append(
       text("dt", "SIZE"),
@@ -288,7 +287,7 @@ function inspect(hit) {
       d.append(
         text(
           "p",
-          "All file contents have matching occurrences elsewhere.",
+          "External copies: 100%",
           "coverage",
         ),
       );
@@ -298,9 +297,6 @@ function inspect(hit) {
     b = view.y.items[hit.b],
     c = view.cells[hit.a][hit.b];
   $("selection").textContent = a.name + " × " + b.name;
-  $("hint").textContent = c.overlap
-    ? "This intersection includes the same files. Double-click to explore within these folders."
-    : "Shared contents, weighted by bytes rather than file count.";
   const dl = document.createElement("dl");
   dl.append(
     text("dt", "HORIZONTAL · X"),
@@ -317,7 +313,7 @@ function inspect(hit) {
     d.append(
       text(
         "p",
-        "Every file content in “" + a.name + "” exists in “" + b.name + "”.",
+        "X → Y: full coverage",
         "coverage",
       ),
     );
@@ -325,11 +321,11 @@ function inspect(hit) {
     d.append(
       text(
         "p",
-        "Every file content in “" + b.name + "” exists in “" + a.name + "”.",
+        "Y → X: full coverage",
         "coverage",
       ),
     );
-  if (!c.overlap) d.append(button("Open this comparison", () => openCell(hit)));
+  if (!c.overlap) d.append(button("Open comparison", () => openCell(hit)));
 }
 function setAxis(axis, item) {
   state[axis] = item.token;
@@ -355,7 +351,7 @@ function list() {
   target.replaceChildren();
   if (!items.length) {
     target.append(
-      text("p", "No regular-file bytes in this scope.", "empty-note"),
+      text("p", "Files: 0", "empty-note"),
     );
     return;
   }
@@ -386,11 +382,11 @@ function list() {
         : view.cells.map((row, i) => [row[index], view.x.items[i]])
     ).filter(([c]) => (axis === "x" ? c.x_in_single : c.y_in_single));
     if (counterparts.length) {
-      const pill = text("span", "One counterpart covers all", "pill keeper");
+      const pill = text("span", "Full copy: one folder", "pill keeper");
       pill.title = counterparts.map(([, i]) => i.path || i.name).join("\n");
       coverage.append(pill);
     } else if (item.kind === "folder" && item.covered_elsewhere)
-      coverage.append(text("span", "All contents elsewhere", "pill"));
+      coverage.append(text("span", "External copies: 100%", "pill"));
     const bar = document.createElement("div");
     bar.className = "mini-bar";
     const fill = document.createElement("i");
@@ -400,7 +396,7 @@ function list() {
     coverage.append(bar);
     row.append(
       coverage,
-      button("Open ↗", () => navigate(() => setAxis(axis, item))),
+      button("Open", () => navigate(() => setAxis(axis, item))),
     );
     target.append(row);
   });
@@ -408,8 +404,7 @@ function list() {
     target.append(
       text(
         "p",
-        count(view[axis].zero_size_items) +
-          " zero-size items have zero-width bands; they remain accessible in this list and coverage includes them.",
+        "Zero-size items: " + count(view[axis].zero_size_items),
         "empty-note",
       ),
     );
@@ -418,17 +413,15 @@ async function load() {
   const id = ++request;
   $("loading").replaceChildren(
     document.createElement("span"),
-    document.createTextNode("Comparing file contents…"),
+    document.createTextNode("Loading comparison…"),
   );
   $("loading").classList.remove("hidden");
   $("back").disabled = !history.length;
   $("details").replaceChildren();
-  $("selection").textContent = "Explore the overlap.";
-  $("hint").textContent =
-    "Move over a cell to compare two items. Click a band to open that axis, or choose an item below.";
+  $("selection").textContent = "—";
   if (coveredMetric !== state.metric) {
     $("covered-list").replaceChildren();
-    $("covered-load").textContent = "Find covered folders ↗";
+    $("covered-load").textContent = "Find folders";
     $("covered-load").onclick = () => coveredFolders();
   }
   try {
@@ -440,11 +433,11 @@ async function load() {
     hover = null;
     $("metric").value = state.metric;
     $("xpath").textContent =
-      "X · " +
+      "X: " +
       (view.x.scope.path || "Root") +
       (state.xo ? " / Other items" : "");
     $("ypath").textContent =
-      "Y · " +
+      "Y: " +
       (view.y.scope.path || "Root") +
       (state.yo ? " / Other items" : "");
     window.history.replaceState(null, "", "/?" + new URLSearchParams(state));
@@ -480,7 +473,7 @@ async function coveredFolders(reset = true) {
       row.className = "item-row";
       const name = text("div", item.path, "item-name");
       name.append(text("small", count(item.files) + " files"));
-      const status = text("div", "All contents elsewhere", "pill");
+      const status = text("div", "External copies: 100%", "pill");
       const find = button("Find keeper", async () => {
         find.disabled = true;
         find.textContent = "Checking…";
@@ -494,9 +487,9 @@ async function coveredFolders(reset = true) {
           status.className = "";
           if (info.distributed_only) {
             status.append(
-              text("span", "Copies spread across locations", "pill"),
+              text("span", "Distributed copies", "pill"),
             );
-            find.textContent = "Explore ↗";
+            find.textContent = "Explore";
             find.onclick = () => {
               navigate(() => {
                 setAxis("x", item);
@@ -517,7 +510,7 @@ async function coveredFolders(reset = true) {
               ),
             );
             status.title = info.keepers.map((i) => i.path).join("\n");
-            find.textContent = "Compare ↗";
+            find.textContent = "Compare";
             find.onclick = () => {
               navigate(() => {
                 setAxis("x", item);
@@ -549,7 +542,7 @@ async function coveredFolders(reset = true) {
       target.append(
         text(
           "p",
-          "No fully covered folders met the scan coverage checks.",
+          "Fully copied folders: 0",
           "empty-note",
         ),
       );
@@ -654,7 +647,7 @@ fetch("/api/manifest")
     $("files").textContent = count(data.files);
     $("skipped").textContent = count(data.blocked_entries);
     $("snapshot").textContent =
-      "Inventory · " +
+      "Inventory: " +
       new Date(data.inventory_time_unix * 1000).toLocaleString() +
       "\n" +
       count(data.directories) +
@@ -664,10 +657,7 @@ fetch("/api/manifest")
       data.source_root +
       " · Scan epoch " +
       data.scan_epoch +
-      " · " +
-      data.coverage_scope +
-      " " +
-      data.size_scope;
+      " · Read only";
   })
   .catch((e) => {
     $("snapshot").textContent = "Could not read report metadata: " + e.message;
