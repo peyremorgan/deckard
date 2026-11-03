@@ -1,4 +1,5 @@
 """Native Qt desktop shell around the isolated scanner and local report API."""
+from collections import deque
 import json
 import os
 import signal
@@ -296,13 +297,30 @@ class MainWindow(QMainWindow):
         if item is None:
             return
         self.current = Path(item.data(Qt.ItemDataRole.UserRole))
-        if self.current != self.active_folder:
-            self.logs.clear()
         self.show_job()
+
+    def append_log(self, folder, message):
+        if folder is not None:
+            with (folder / 'scan.log').open('a', encoding='utf-8') as stream:
+                stream.write(message + '\n')
+        if self.current == folder:
+            self.logs.appendPlainText(message)
+
+    def load_log(self):
+        try:
+            with (self.current / 'scan.log').open(encoding='utf-8', errors='replace') as stream:
+                # Keep the viewer bounded while retaining the full history on disk.
+                text = ''.join(deque(stream, maxlen=self.logs.maximumBlockCount()))
+        except FileNotFoundError:
+            text = ''
+        self.logs.setPlainText(text.removesuffix('\n'))
+        bar = self.logs.verticalScrollBar()
+        bar.setValue(bar.maximum())
 
     def show_job(self):
         if self.current is None:
             return
+        self.load_log()
         cfg = json.loads((self.current / 'job.json').read_text())
         name = Path(cfg['source']['root'].rstrip('/')).name or cfg['source']['root']
         self.job_title.setText(name)
@@ -333,7 +351,7 @@ class MainWindow(QMainWindow):
         self.stop_report()
         self.active_folder = self.current = Path(folder)
         self.metrics = {}; self.buffer.clear(); self.started = time.monotonic(); self.terminal_event = False
-        self.logs.clear(); self.start.setEnabled(False)
+        self.start.setEnabled(False)
         self.process = QProcess(self)
         # Own a separate process group so forced cancellation also closes the
         # SSH master and worker channels, even if the backend is unresponsive.
@@ -366,6 +384,7 @@ class MainWindow(QMainWindow):
             cfg = json.loads((self.active_folder / 'job.json').read_text())
             cfg.update(status='error', phase='Could not start', error=message)
             atomic_json(self.active_folder / 'job.json', cfg)
+            self.append_log(self.active_folder, message)
             self.start.setEnabled(True); self.refresh_library(); self.show_job()
             if self.closing:
                 self.finish_close()
@@ -387,21 +406,21 @@ class MainWindow(QMainWindow):
                         self.phase.setText(phase.replace('.', ' · ').replace('_', ' ').capitalize())
                 self.update_metrics()
             elif kind == 'log':
-                if self.current == self.active_folder:
-                    self.logs.appendPlainText(event.get('message', ''))
+                self.append_log(self.active_folder, event.get('message', ''))
             elif kind == 'phase' and self.current == self.active_folder:
                 self.phase.setText(event['phase'])
             elif kind in ('complete', 'paused', 'failed'):
                 self.terminal_event = True
                 if kind == 'failed':
-                    self.note.setText(event.get('message', 'Could not finish the scan.'))
-                    self.note.show()
-                    self.logs.appendPlainText(event.get('message', ''))
+                    if self.current == self.active_folder:
+                        self.note.setText(event.get('message', 'Could not finish the scan.'))
+                        self.note.show()
+                    self.append_log(self.active_folder, event.get('message', ''))
 
     def read_errors(self):
         text = bytes(self.process.readAllStandardError()).decode('utf-8', 'replace').strip()
-        if text and self.current == self.active_folder:
-            self.logs.appendPlainText(text)
+        if text:
+            self.append_log(self.active_folder, text)
 
     def update_metrics(self):
         if self.current is None:
@@ -533,7 +552,8 @@ class MainWindow(QMainWindow):
         self.report_process = QProcess(self); self.report_buffer.clear()
         self.report_process.setWorkingDirectory(str(Path(__file__).resolve().parents[1]))
         self.report_process.readyReadStandardOutput.connect(self.read_report_url)
-        self.report_process.readyReadStandardError.connect(lambda: self.logs.appendPlainText(bytes(self.report_process.readAllStandardError()).decode('utf8', 'replace')))
+        log_folder = self.current
+        self.report_process.readyReadStandardError.connect(lambda: self.append_log(log_folder, bytes(self.report_process.readAllStandardError()).decode('utf8', 'replace')))
         self.report_process.errorOccurred.connect(self.report_process_error)
         self.report_process.finished.connect(self.report_exited)
         self.report_process.start(sys.executable, ['-u', '-m', 'deckard.report', 'serve', '--report-dir', str(folder), '--port', '0'])

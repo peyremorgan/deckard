@@ -5,12 +5,13 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS', '--disable-gpu')
 
 import pytest
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QProcess, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QInputDialog, QLineEdit, QMessageBox
 from deckard.gui import MainWindow, create_application
 from deckard.auth import AuthBridge, AuthRequest
@@ -114,6 +115,100 @@ def test_gui_new_scan_has_both_sources_and_stores_no_password(app, tmp_path):
         assert window.identity.text() == ''
         window.source_kind('local')
         assert window.source_pages.currentIndex() == 0
+    finally:
+        window.close(); app.processEvents()
+
+
+def test_scan_output_survives_navigation_and_restart(app, tmp_path):
+    library = Library(tmp_path / 'library')
+    first = library.create(dict(kind='local', root='/first'))
+    second = library.create(dict(kind='local', root='/second'))
+    window = MainWindow(library)
+    stdout, stderr = bytearray(), bytearray()
+
+    def drain(buffer):
+        result = bytes(buffer)
+        buffer.clear()
+        return result
+
+    window.process = SimpleNamespace(
+        state=lambda: QProcess.ProcessState.NotRunning,
+        readAllStandardOutput=lambda: drain(stdout),
+        readAllStandardError=lambda: drain(stderr))
+    window.active_folder = first
+
+    def select(folder):
+        for index in range(window.jobs.count()):
+            item = window.jobs.item(index)
+            if item.data(Qt.ItemDataRole.UserRole) == str(folder):
+                window.jobs.setCurrentItem(item)
+                return
+        raise AssertionError('Scan missing from library')
+
+    def event(kind, message):
+        stdout.extend((json.dumps(dict(event=kind, message=message)) + '\n').encode())
+        window.read_events()
+
+    try:
+        select(first)
+        event('log', 'Inventory started')
+        assert window.logs.toPlainText() == 'Inventory started'
+        select(second)
+        assert window.logs.toPlainText() == ''
+        event('log', 'Hashing café\nStill working')
+        stderr.extend(b'Scanner diagnostic\n')
+        window.read_errors()
+        event('failed', 'Source disconnected')
+        assert window.logs.toPlainText() == ''
+        assert window.note.isHidden()
+        select(first)
+        expected = 'Inventory started\nHashing café\nStill working\nScanner diagnostic\nSource disconnected'
+        assert window.logs.toPlainText() == expected
+        window.show_new()
+        window.select_job(window.jobs.currentItem())
+        assert window.logs.toPlainText() == expected
+        select(second)
+        window.active_folder = second
+        event('log', 'Second scan output')
+        select(first)
+        assert window.logs.toPlainText() == expected
+    finally:
+        window.close(); app.processEvents()
+
+    reopened = MainWindow(library)
+    try:
+        reopened.current = first
+        reopened.show_job()
+        assert reopened.logs.toPlainText() == expected
+        reopened.current = second
+        reopened.show_job()
+        assert reopened.logs.toPlainText() == 'Second scan output'
+    finally:
+        reopened.close(); app.processEvents()
+
+
+@pytest.mark.parametrize('refresh', [False, True])
+def test_scan_keeps_previous_output_when_started(app, tmp_path, refresh):
+    root = tmp_path / 'source'; root.mkdir()
+    (root / 'a').write_bytes(b'matching'); (root / 'b').write_bytes(b'matching')
+    library = Library(tmp_path / 'library')
+    folder = library.create(dict(kind='local', root=str(root), workers=1))
+    history = ''.join(f'Previous output {i}\n' for i in range(650))
+    (folder / 'scan.log').write_text(history, encoding='utf-8')
+    window = MainWindow(library)
+    try:
+        window.current = folder
+        window.show_job()
+        assert window.logs.blockCount() == 600
+        assert window.logs.toPlainText().splitlines()[0] == 'Previous output 50'
+        window.start_job(folder, refresh=refresh)
+        until(app, lambda: window.process.state() == QProcess.ProcessState.NotRunning, timeout=30)
+        saved = (folder / 'scan.log').read_text(encoding='utf-8')
+        assert saved.startswith(history)
+        assert 'Loading directory hierarchy' in saved[len(history):]
+        assert json.loads((folder / 'job.json').read_text())['status'] == 'complete'
+        window.show_job()
+        assert window.logs.toPlainText() == '\n'.join(saved.splitlines()[-600:])
     finally:
         window.close(); app.processEvents()
 
