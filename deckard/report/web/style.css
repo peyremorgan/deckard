@@ -131,7 +131,6 @@ h3 { font: bold 12px Consolas, Menlo, monospace; overflow-wrap: anywhere; margin
 .purple { background: var(--purple); }
 .teal { background: var(--teal); }
 .diagonal { background: repeating-linear-gradient(135deg, #465468 0 2px, #172333 2px 5px); }
-.formula { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 12px; font: 12px Consolas, Menlo, monospace; color: var(--muted); }
 .explorer { margin-top: 8px; }
 .explorer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .explorer-head h2 { margin: 0; font: bold 10px Arial, sans-serif; }
