@@ -1,8 +1,10 @@
 """Client-only scan library. Passwords and passphrases never enter this model."""
 import datetime
+import fcntl
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import uuid
 
@@ -55,3 +57,17 @@ class Library:
             except (OSError, ValueError):
                 continue
         return sorted(result, key=lambda item: item['created'], reverse=True)
+
+    def remove(self, folder):
+        """Remove only a library-owned scan, after its scanner releases the lock."""
+        folder = Path(folder).absolute()
+        scans = self.scans.resolve()
+        if (folder.is_symlink() or folder.parent.resolve() != scans or
+                folder.resolve().parent != scans):
+            raise ValueError('Only scans in this library can be removed.')
+        with (folder / 'scan.lock').open('a') as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise RuntimeError('This scan is still running. Stop it in its window before removing it.') from None
+            shutil.rmtree(folder)

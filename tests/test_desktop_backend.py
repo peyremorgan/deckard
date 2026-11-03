@@ -1,4 +1,5 @@
 import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -144,3 +145,47 @@ def test_pause_and_resume_committed_inventory(tmp_path):
     with contextlib.closing(sqlite3.connect(job / 'index.sqlite3')) as db:
         assert db.execute('SELECT COUNT(*) FROM files').fetchone()[0] == 3000
         assert db.execute('SELECT COUNT(*) FROM files WHERE error IS NOT NULL').fetchone()[0] == 0
+
+
+def test_remove_completed_scan_cleans_all_artifacts_and_preserves_source(tmp_path):
+    root = tmp_path / 'source'; root.mkdir()
+    (root / 'a').write_bytes(b'matching'); (root / 'b').write_bytes(b'matching')
+    library = Library(tmp_path / 'library')
+    folder = library.create(dict(kind='local', root=str(root), workers=1))
+    other = library.create(dict(kind='local', root=str(root), workers=1))
+    before = snapshot(root)
+    result = run_job(folder)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (folder / 'index.sqlite3').exists()
+    assert (folder / 'report/report.sqlite3').exists()
+    # A scan can contain links; cleanup must never follow them into source data.
+    (folder / 'source-link').symlink_to(root, target_is_directory=True)
+    library.remove(folder)
+    assert not folder.exists()
+    assert [job['folder'] for job in library.jobs()] == [str(other)]
+    assert snapshot(root) == before
+
+
+def test_remove_refuses_locked_scan_without_deleting_files(tmp_path):
+    library = Library(tmp_path / 'library')
+    folder = library.create(dict(kind='local', root='/source'))
+    with (folder / 'scan.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        before = snapshot(folder)
+        with pytest.raises(RuntimeError, match='still running'):
+            library.remove(folder)
+        assert snapshot(folder) == before
+    library.remove(folder)
+    assert not folder.exists()
+
+
+def test_remove_rejects_paths_outside_scan_library(tmp_path):
+    library = Library(tmp_path / 'library')
+    outside = tmp_path / 'source'; outside.mkdir()
+    (outside / 'keep').write_text('source data')
+    link = library.scans / 'linked-scan'
+    link.symlink_to(outside, target_is_directory=True)
+    for path in (outside, library.root, library.scans, link):
+        with pytest.raises(ValueError, match='Only scans'):
+            library.remove(path)
+    assert (outside / 'keep').read_text() == 'source data'

@@ -246,6 +246,131 @@ def javascript(app, page, source):
     return result[0]
 
 
+def confirm_removal(window, answer=QMessageBox.StandardButton.Yes):
+    defaults = []
+    def respond():
+        dialog = QApplication.activeModalWidget()
+        defaults.append(dialog.defaultButton() == dialog.button(QMessageBox.StandardButton.No))
+        dialog.done(answer.value)
+    QTimer.singleShot(0, respond)
+    window.remove.click()
+    assert defaults == [True]
+
+
+def test_remove_completed_scan_stops_report_and_selects_remaining_scan(app, tmp_path):
+    root = tmp_path / 'source'; root.mkdir()
+    (root / 'a').write_bytes(b'matching'); (root / 'b').write_bytes(b'matching')
+    window = MainWindow(Library(tmp_path / 'library'))
+    try:
+        window.local_path.setText(str(root)); window.start_new()
+        folder = window.current
+        until(app, lambda: not window.is_running(), timeout=30)
+        until(app, lambda: window.web.url().host() == '127.0.0.1')
+        report = window.report_process
+        other = window.library.create(dict(kind='local', root=str(root), workers=1))
+        window.refresh_library()
+        confirm_removal(window, QMessageBox.StandardButton.No)
+        assert folder.exists() and window.report_process is report
+        confirm_removal(window)
+        assert not folder.exists()
+        assert report.state() == QProcess.ProcessState.NotRunning
+        assert window.report_process is None and window.report_folder is None
+        assert window.current == other and window.jobs.count() == 1
+        assert window.detail_pages.currentIndex() == 0
+        assert (root / 'a').read_bytes() == b'matching'
+        confirm_removal(window)
+        assert window.current is None and window.jobs.count() == 0
+        assert window.pages.currentWidget() is window.new_page
+        assert window.start.isEnabled()
+    finally:
+        window.close(); app.processEvents()
+
+
+def test_remove_locked_scan_keeps_it_available_for_retry(app, tmp_path, monkeypatch):
+    import fcntl
+    library = Library(tmp_path / 'library')
+    folder = library.create(dict(kind='local', root='/source'))
+    window = MainWindow(library)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *args: warnings.append(args[2]))
+    try:
+        window.jobs.setCurrentRow(0)
+        with (folder / 'scan.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            confirm_removal(window)
+            assert folder.exists() and window.current == folder
+            assert window.jobs.count() == 1 and window.pending_removal is None
+            assert window.remove.isEnabled() and window.resume.isEnabled()
+            assert len(warnings) == 1 and 'still running' in warnings[0]
+        confirm_removal(window)
+        assert not folder.exists() and window.current is None
+    finally:
+        window.close(); app.processEvents()
+
+
+@pytest.mark.parametrize('navigate', [False, True])
+def test_remove_running_scan_waits_for_graceful_exit(app, tmp_path, monkeypatch, navigate):
+    marker = tmp_path / 'stopped'
+    script = '''
+import fcntl, json, os, signal, sys, time
+from pathlib import Path
+folder, marker = map(Path, sys.argv[1:])
+stopped = False
+def stop(*_):
+    global stopped
+    stopped = True
+signal.signal(signal.SIGTERM, stop)
+with (folder / 'scan.lock').open('a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    cfg = json.loads((folder / 'job.json').read_text())
+    cfg.update(status='running', pid=os.getpid())
+    (folder / 'job.json').write_text(json.dumps(cfg))
+    print(json.dumps(dict(event='log', message='Ready')), flush=True)
+    while not stopped:
+        time.sleep(.01)
+    time.sleep(.2)
+    assert (folder / 'job.json').exists()
+    cfg.update(status='paused')
+    (folder / 'job.json').write_text(json.dumps(cfg))
+    print(json.dumps(dict(event='log', message='Graceful cleanup finished')), flush=True)
+    marker.write_text('stopped gracefully')
+'''
+    start = QProcess.start
+    def start_worker(proc, program, args):
+        if 'deckard.scan_job' in args:
+            args = ['-u', '-c', script, args[args.index('--job') + 1], str(marker)]
+        return start(proc, program, args)
+    monkeypatch.setattr(QProcess, 'start', start_worker)
+    library = Library(tmp_path / 'library')
+    folder = library.create(dict(kind='local', root='/source'))
+    other = library.create(dict(kind='local', root='/other'))
+    window = MainWindow(library)
+    removed = []
+    remove = library.remove
+    def check_remove(path):
+        assert not window.is_running()
+        assert marker.read_text() == 'stopped gracefully'
+        assert 'Graceful cleanup finished' in (path / 'scan.log').read_text()
+        removed.append(path)
+        remove(path)
+    monkeypatch.setattr(library, 'remove', check_remove)
+    try:
+        window.start_job(folder)
+        until(app, lambda: window.logs.toPlainText() == 'Ready')
+        confirm_removal(window)
+        assert folder.exists() and window.pending_removal == folder
+        assert not window.remove.isEnabled() and not window.start.isEnabled()
+        if navigate:
+            window.current = other; window.show_job()
+        until(app, lambda: not folder.exists())
+        assert removed == [folder]
+        assert window.pending_removal is None
+        assert window.current == other and other.exists()
+        assert window.remove.isEnabled() and window.resume.isEnabled()
+    finally:
+        window.close(); app.processEvents()
+
+
 def test_theme_persistence_system_changes_and_invalid_settings(app, tmp_path, monkeypatch):
     from deckard.theme import PALETTES
     from PySide6.QtGui import QPalette

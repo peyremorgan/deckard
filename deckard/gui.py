@@ -88,6 +88,8 @@ class MainWindow(QMainWindow):
         self.active_folder = None
         self.process = None
         self.report_process = None
+        self.report_folder = None
+        self.pending_removal = None
         self.report_buffer = bytearray()
         self.buffer = bytearray()
         self.metrics = {}
@@ -174,7 +176,8 @@ class MainWindow(QMainWindow):
         self.resume = QPushButton('Resume scan'); self.resume.clicked.connect(self.resume_current)
         self.pause = QPushButton('Pause'); self.pause.clicked.connect(self.pause_scan)
         self.map_button = QPushButton('Duplicate map'); self.map_button.setObjectName('primary'); self.map_button.clicked.connect(self.open_current_report)
-        head.addWidget(self.resume); head.addWidget(self.pause); head.addWidget(self.map_button); detail.addLayout(head)
+        self.remove = QPushButton('Remove scan'); self.remove.clicked.connect(self.remove_current)
+        head.addWidget(self.resume); head.addWidget(self.pause); head.addWidget(self.map_button); head.addWidget(self.remove); detail.addLayout(head)
         status_card = self.status_card = QFrame(); status_card.setObjectName('card'); status = QVBoxLayout(status_card); status.setContentsMargins(10, 8, 10, 8)
         self.phase = label('Ready'); status.addWidget(self.phase)
         self.progress = QProgressBar(); self.progress.setTextVisible(False); status.addWidget(self.progress)
@@ -259,13 +262,13 @@ class MainWindow(QMainWindow):
 
     def show_new(self):
         self.pages.setCurrentWidget(self.new_page)
-        self.start.setEnabled(not self.is_running())
+        self.start.setEnabled(not self.is_running() and self.pending_removal is None)
 
     def is_running(self):
         return self.process is not None and self.process.state() != QProcess.ProcessState.NotRunning
 
     def start_new(self):
-        if self.is_running():
+        if self.is_running() or self.pending_removal is not None:
             return
         try:
             kind = 'local' if self.local_button.isChecked() else 'ssh'
@@ -331,8 +334,9 @@ class MainWindow(QMainWindow):
         self.job_location.setText(location(cfg))
         running = self.is_running() and self.current == self.active_folder
         self.phase.setText(cfg.get('phase', 'Ready'))
+        self.remove.show(); self.remove.setEnabled(self.pending_removal is None)
         self.pause.setVisible(running); self.resume.setVisible(not running)
-        self.resume.setEnabled(not self.is_running())
+        self.resume.setEnabled(not self.is_running() and self.pending_removal is None)
         self.resume.setText('Refresh scan' if cfg.get('status') == 'complete' else 'Resume scan')
         ready = (self.current / 'report/manifest.json').exists()
         self.map_button.setEnabled(ready and not running)
@@ -343,15 +347,73 @@ class MainWindow(QMainWindow):
         self.status_card.show()
         self.detail_pages.setCurrentIndex(0)
         self.update_metrics()
+        if self.pending_removal == self.current:
+            self.phase.setText('Stopping scan before removal…')
         if cfg.get('status') == 'complete' and ready and not running:
             self.open_current_report()
 
+    def remove_current(self):
+        if self.current is None or self.pending_removal is not None:
+            return
+        folder = self.current
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle('Remove scan')
+        dialog.setTextFormat(Qt.TextFormat.PlainText)
+        dialog.setText('Remove this scan and all of its saved scan data and reports?')
+        dialog.setInformativeText('A running scan will be stopped first. Source files are kept.')
+        dialog.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        dialog.setDefaultButton(QMessageBox.StandardButton.No)
+        answer = dialog.exec()
+        dialog.deleteLater()
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.pending_removal = folder
+        self.remove.setEnabled(False); self.resume.setEnabled(False); self.start.setEnabled(False)
+        if self.is_running() and self.active_folder == folder:
+            self.pause_scan()
+            self.phase.setText('Stopping scan before removal…')
+        else:
+            self.finish_removal()
+
+    def finish_removal(self):
+        folder = self.pending_removal
+        if folder is None or (self.is_running() and self.active_folder == folder):
+            return
+        try:
+            if self.report_folder == (folder / 'report').resolve() and not self.stop_report():
+                raise RuntimeError('The report viewer is still stopping. Try removing the scan again.')
+            self.library.remove(folder)
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.pending_removal = None
+            self.remove.setEnabled(True); self.start.setEnabled(not self.is_running())
+            self.refresh_library()
+            if self.current is not None:
+                self.show_job()
+            QMessageBox.warning(self, 'Cannot remove scan', str(exc))
+            return
+        self.pending_removal = None
+        if self.active_folder == folder:
+            self.active_folder = None; self.worker_pid = None
+        selected = self.current == folder
+        if selected:
+            self.current = None
+        self.remove.setEnabled(True); self.start.setEnabled(not self.is_running())
+        self.resume.setEnabled(not self.is_running())
+        self.refresh_library()
+        if selected:
+            if self.jobs.count():
+                self.jobs.setCurrentRow(0)
+            else:
+                self.show_new()
+
     def resume_current(self):
-        if self.current is not None and not self.is_running():
+        if self.current is not None and not self.is_running() and self.pending_removal is None:
             cfg = json.loads((self.current / 'job.json').read_text())
             self.start_job(self.current, refresh=cfg.get('status') == 'complete')
 
     def start_job(self, folder, refresh=False):
+        if self.is_running() or self.pending_removal is not None:
+            return
         self.stop_report()
         self.active_folder = self.current = Path(folder)
         self.metrics = {}; self.buffer.clear(); self.started = time.monotonic(); self.terminal_event = False
@@ -389,7 +451,10 @@ class MainWindow(QMainWindow):
             cfg.update(status='error', phase='Could not start', error=message)
             atomic_json(self.active_folder / 'job.json', cfg)
             self.append_log(self.active_folder, message)
-            self.start.setEnabled(True); self.refresh_library(); self.show_job()
+            if self.pending_removal == self.active_folder:
+                self.finish_removal()
+            else:
+                self.start.setEnabled(True); self.refresh_library(); self.show_job()
             if self.closing:
                 self.finish_close()
 
@@ -476,15 +541,18 @@ class MainWindow(QMainWindow):
         if cfg.get('status') in ('running', 'reporting') and cfg.get('pid') == self.worker_pid:
             cfg.update(status='paused' if code != 0 else 'error', phase='Paused' if code != 0 else 'Could not finish')
             atomic_json(path / 'job.json', cfg)
-        self.refresh_library()
-        if self.current == path:
-            self.show_job()
+        if self.pending_removal == path:
+            self.finish_removal()
+        else:
+            self.refresh_library()
+            if self.current == path:
+                self.show_job()
         if self.closing:
             self.finish_close()
 
     @Slot(object)
     def authentication_requested(self, request):
-        if not self.is_running() or request.done.is_set():
+        if not self.is_running() or self.pending_removal is not None or request.done.is_set():
             request.answer(None); return
         if request.kind == 'none':
             self.note.setText(request.prompt); self.note.show(); request.answer(''); return
@@ -521,7 +589,7 @@ class MainWindow(QMainWindow):
             self.jobs.clearSelection()
             self.job_title.setText(folder.name)
             self.job_location.setText(str(folder))
-            self.resume.hide(); self.pause.hide(); self.map_button.setEnabled(False)
+            self.resume.hide(); self.pause.hide(); self.remove.hide(); self.map_button.setEnabled(False)
             self.open_report(folder)
 
     def show_diagnostics(self):
@@ -546,10 +614,12 @@ class MainWindow(QMainWindow):
             self.open_report(self.current / 'report')
 
     def open_report(self, folder):
+        folder = Path(folder).resolve()
         if not (folder / 'report.sqlite3').exists():
             QMessageBox.warning(self, 'No report found', 'Choose a report folder containing report.sqlite3 and manifest.json.')
             return
         self.stop_report()
+        self.report_folder = folder
         self.pages.setCurrentWidget(self.detail_page)
         self.status_card.hide()
         self.detail_pages.setCurrentIndex(1)
@@ -591,8 +661,13 @@ class MainWindow(QMainWindow):
             proc.readyReadStandardError.disconnect()
             proc.errorOccurred.disconnect(); proc.finished.disconnect()
             proc.kill(); proc.waitForFinished(3000)
+            if proc.state() != QProcess.ProcessState.NotRunning:
+                self.report_process = proc
+                return False
             proc.deleteLater()
+        self.report_folder = None
         self.web.setUrl(QUrl('about:blank'))
+        return True
 
     def closeEvent(self, event):
         if self.is_running():

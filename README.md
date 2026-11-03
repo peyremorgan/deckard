@@ -35,6 +35,10 @@ discover changes while retaining unchanged hashes. Closing the window pauses
 an active scan before exiting. Reports can also be opened independently through
 **Open a report…**, including reports made by the original scanner.
 
+**Remove scan** deletes a scan from the library along with its local indexes,
+checkpoints, logs and reports. Running scans stop before cleanup begins.
+Removing a scan keeps the original source files.
+
 ## Agentless SSH
 
 The remote host needs an **already installed Python 3 or Python 2.7 interpreter**
