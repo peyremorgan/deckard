@@ -284,6 +284,8 @@ def verify_map_selection_freeze(app, web, opened, root):
     assert js("document.getElementById('open-in-explorer').disabled")
     assert move(0, 1) == 'A × B'
     until(app, lambda: not js("document.getElementById('open-in-explorer').hidden"))
+    assert js("document.getElementById('open-in-explorer').textContent") == (
+        'Open in Finder' if sys.platform == 'darwin' else 'Open in explorer')
     assert js("document.getElementById('open-comparison').nextElementSibling.id") == 'open-in-explorer'
     assert not js("document.getElementById('selection-actions').hidden")
     assert move(1, 0, shift=True) == 'A × B'

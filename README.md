@@ -79,7 +79,8 @@ Shift+click a cell or axis band to freeze its selection, then move to the right
 panel to use **Open comparison** or read its details. **Space** over the map or
 **Freeze selection** also freezes the current selection; **Escape** or
 **Resume hover** restores hover updates. Opening a new view clears the freeze.
-For local scans in the desktop app, **Open in explorer** in the Selection panel
+For local scans in the desktop app, **Open in Finder** on macOS or
+**Open in explorer** on other systems in the Selection panel
 opens both selected folders in the system file explorer. File selections open
 their containing folders; a shared folder opens once.
 

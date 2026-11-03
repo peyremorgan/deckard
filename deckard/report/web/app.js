@@ -52,6 +52,8 @@ function connectReportActions() {
 window.addEventListener("reportactionsready", connectReportActions);
 connectReportActions();
 $("open-comparison").onclick = () => openCell(hover);
+$("open-in-explorer").textContent = navigator.platform.startsWith("Mac")
+  ? "Open in Finder" : "Open in explorer";
 $("open-in-explorer").onclick = () => {
   const tokens = explorerTokens();
   if (!explorerAvailable || explorerOpening || !tokens.length) return;
