@@ -66,8 +66,9 @@ double-click a cell to explore both axes. Small items remain accessible through
 expandable remainder bands and the item list.
 
 The desktop and report viewer use compact industrial panels and a dark matrix.
-A fixed-pixel block grid is always enabled; file and folder sizes determine the
-matrix geometry. Existing report data opens with the app's current viewer;
+**Settings → Block grid** toggles a fixed-pixel overlay, enabled by default;
+file and folder sizes determine the matrix geometry. Existing report data opens
+with the app's current viewer;
 archived HTML/CSS/JavaScript files remain untouched.
 
 Teal marks folders whose file contents all occur outside that folder, possibly

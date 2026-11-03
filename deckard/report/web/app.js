@@ -130,7 +130,7 @@ function draw() {
           ? "#7d5cc5"
           : heat(cell.similarity);
       ctx.fillRect(x, y, cw, ch);
-      if (!cell.overlap) {
+      if ($("sectors").checked && !cell.overlap) {
         ctx.fillStyle = sectorGrid;
         ctx.fillRect(x, y, cw, ch);
       }
@@ -614,6 +614,17 @@ canvas.addEventListener("keydown", (event) => {
   }
 });
 $("fit").onclick = fit;
+$("sectors").onchange = draw;
+const settings = $("settings");
+document.addEventListener("pointerdown", (event) => {
+  if (!settings.contains(event.target)) settings.open = false;
+});
+settings.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    settings.open = false;
+    settings.querySelector("summary").focus();
+  }
+});
 $("zoom-in").onclick = () => zoomAt(zoom * 1.5);
 $("zoom-out").onclick = () => zoomAt(zoom / 1.5);
 $("reset").onclick = () =>

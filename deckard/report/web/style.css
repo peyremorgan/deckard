@@ -21,14 +21,18 @@ main { padding: 8px; max-width: 1600px; margin: auto; }
 .stats strong { font: bold 13px Consolas, Menlo, monospace; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 6px; }
 label { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
-button, select { font: 11px Arial, sans-serif; color: var(--ink); border: 1px solid #6c7684; border-top-color: white; border-left-color: white; border-radius: 0; background: var(--panel); padding: 4px 9px; min-height: 26px; }
-button { cursor: pointer; }
-button:hover { background: #e9edf2; }
+button, select, .settings > summary { font: 11px Arial, sans-serif; color: var(--ink); border: 1px solid #6c7684; border-top-color: white; border-left-color: white; border-radius: 0; background: var(--panel); padding: 4px 9px; min-height: 26px; }
+button, .settings > summary { cursor: pointer; }
+button:hover, .settings > summary:hover { background: #e9edf2; }
 button:active { border-color: #65748a white white #65748a; background: #aebdce; }
 button:disabled { color: #7c8794; cursor: default; }
-button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #244e89; outline-offset: 1px; }
+button:focus-visible, select:focus-visible, input:focus-visible, .settings > summary:focus-visible { outline: 2px solid #244e89; outline-offset: 1px; }
 select { background: #f6f7f8; border-color: #687382 white white #687382; }
 .tools { display: flex; gap: 4px; margin-left: auto; }
+.settings { position: relative; }
+.settings-options { position: absolute; top: calc(100% + 3px); right: 0; z-index: 2; padding: 10px 12px; background: var(--panel); border: 1px solid #6c7684; box-shadow: 2px 2px 0 #141a2233; white-space: nowrap; }
+.settings-options label { cursor: pointer; }
+.settings-options input { accent-color: #234978; margin: 0; }
 .workspace { display: grid; grid-template-columns: minmax(0, min(calc(100vh - 216px), calc(100% - 244px))) minmax(230px, 1fr); align-items: start; gap: 8px; }
 .map-panel, .inspector, .legend, .explorer { background: var(--panel); border: 1px solid var(--line); border-top-color: white; border-left-color: white; min-width: 0; }
 .panel-title, .explorer-head { font: bold 10px Arial, sans-serif; background: #737e8d; color: white; padding: 5px 7px; margin: 0; }
