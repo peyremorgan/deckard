@@ -79,6 +79,9 @@ Shift+click a cell or axis band to freeze its selection, then move to the right
 panel to use **Open comparison** or read its details. **Space** over the map or
 **Freeze selection** also freezes the current selection; **Escape** or
 **Resume hover** restores hover updates. Opening a new view clears the freeze.
+For local scans in the desktop app, **Open in explorer** in the Selection panel
+opens both selected folders in the system file explorer. File selections open
+their containing folders; a shared folder opens once.
 
 The desktop and report viewer use compact industrial panels and a dark matrix.
 **Settings → Theme** offers **Light**, **Dark**, and **System** (the default).

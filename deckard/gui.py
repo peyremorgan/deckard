@@ -1,13 +1,16 @@
 """Native Qt desktop shell around the isolated scanner and local report API."""
 from collections import deque
+import base64
+import contextlib
 import json
 import os
 import signal
+import sqlite3
 from pathlib import Path
 import sys
 import time
 
-from PySide6.QtCore import Qt, QProcess, QProcessEnvironment, QTimer, QUrl, Slot, QFile, QIODevice
+from PySide6.QtCore import Qt, QProcess, QProcessEnvironment, QTimer, QUrl, Slot, QFile, QIODevice, QObject
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QActionGroup, QColor
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QFrame, QLabel, QPushButton, QLineEdit, QFileDialog, QStackedWidget,
@@ -23,6 +26,7 @@ from .theme import ThemeManager, PALETTES
 from .auth import AuthBridge
 from .storage import Library, atomic_json
 from .ssh import validate_target
+from .report.model import readonly
 
 
 def label(value='', name=None):
@@ -57,6 +61,64 @@ class ReportPage(QWebEnginePage):
     def acceptNavigationRequest(self, url, kind, main_frame):
         return (url.scheme() == 'about' or
                 (url.scheme() == 'http' and url.host() == '127.0.0.1' and url.port() == self.allowed_port))
+
+
+class ReportActions(QObject):
+    """Open only folders identified by the active local report's item tokens."""
+    def __init__(self, window):
+        super().__init__(window)
+        self.window = window
+
+    def local_report(self):
+        window = self.window
+        url = window.web.url()
+        if (window.report_folder is None or url.scheme() != 'http' or
+                url.host() != '127.0.0.1' or url.port() != window.web_page.allowed_port):
+            return None
+        config = json.loads((window.report_folder.parent / 'job.json').read_text())
+        return window.report_folder if config['source']['kind'] == 'local' else None
+
+    @Slot(result=bool)
+    def canOpenFolders(self):
+        try:
+            return self.local_report() is not None
+        except (OSError, ValueError, KeyError):
+            return False
+
+    @Slot('QStringList', result=str)
+    def openFolders(self, tokens):
+        try:
+            report = self.local_report()
+            if report is None:
+                raise ValueError('Opening folders is available only for local scans.')
+            if not 1 <= len(tokens) <= 2:
+                raise ValueError('Select a folder comparison first.')
+            folders = []
+            with contextlib.closing(readonly(report / 'report.sqlite3')) as db:
+                metadata = db.execute("SELECT value FROM metadata WHERE key='source_root_base64'").fetchone()
+                root = Path(os.fsdecode(base64.b64decode(json.loads(metadata[0])))).resolve(strict=True)
+                for token in tokens:
+                    kind, ident = token.split(':', 1)
+                    if kind == 'd':
+                        row = db.execute('SELECT path FROM nodes WHERE id=?', (int(ident),)).fetchone()
+                    elif kind == 'f':
+                        row = db.execute('SELECT n.path FROM entries e JOIN nodes n ON n.id=e.parent WHERE e.id=?',
+                                         (int(ident),)).fetchone()
+                    else:
+                        raise ValueError('Select individual folders or files first.')
+                    if row is None:
+                        raise ValueError('The selected item is no longer in this report.')
+                    folder = (root / os.fsdecode(bytes(row[0]))).resolve(strict=True)
+                    if not folder.is_relative_to(root) or not folder.is_dir():
+                        raise ValueError('The selected folder is no longer available in the scan source.')
+                    if folder not in folders:
+                        folders.append(folder)
+            # Validate both locations before launching either one.
+            failed = [str(folder) for folder in folders
+                      if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))]
+            return 'Could not open: ' + ', '.join(failed) if failed else ''
+        except (OSError, ValueError, KeyError, TypeError, IndexError, RuntimeError, sqlite3.Error) as exc:
+            return str(exc)
 
 
 class SourcePages(QWidget):
@@ -197,6 +259,8 @@ class MainWindow(QMainWindow):
         self.web_page = ReportPage(self.web); self.web.setPage(self.web_page)
         self.web_channel = QWebChannel(self.web_page)
         self.web_channel.registerObject('appearance', self.appearance)
+        self.report_actions = ReportActions(self)
+        self.web_channel.registerObject('reportActions', self.report_actions)
         self.web_page.setWebChannel(self.web_channel)
         resource = QFile(':/qtwebchannel/qwebchannel.js')
         if not resource.open(QIODevice.OpenModeFlag.ReadOnly):

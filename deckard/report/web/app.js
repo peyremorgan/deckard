@@ -27,6 +27,39 @@ let view,
   panY = 0,
   dragging,
   request = 0;
+let explorerAvailable = false, explorerOpening = false;
+function explorerTokens(hit = hover) {
+  if (!hit || hit.axis || !view) return [];
+  const items = [view.x.items[hit.a], view.y.items[hit.b]];
+  return items.every((item) => item.kind === "folder" || item.kind === "file")
+    ? items.map((item) => item.token) : [];
+}
+function updateExplorer(hit = hover) {
+  $("open-in-explorer").hidden = !explorerAvailable;
+  $("open-in-explorer").disabled = explorerOpening || !explorerTokens(hit).length;
+}
+function connectReportActions() {
+  if (!window.DeckardReportActions) return;
+  window.DeckardReportActions.canOpenFolders((available) => {
+    explorerAvailable = available;
+    updateExplorer();
+  });
+}
+window.addEventListener("reportactionsready", connectReportActions);
+connectReportActions();
+$("open-in-explorer").onclick = () => {
+  const tokens = explorerTokens();
+  if (!explorerAvailable || explorerOpening || !tokens.length) return;
+  explorerOpening = true;
+  updateExplorer();
+  $("explorer-error").hidden = true;
+  window.DeckardReportActions.openFolders(tokens, (error) => {
+    explorerOpening = false;
+    $("explorer-error").textContent = error;
+    $("explorer-error").hidden = !error;
+    updateExplorer();
+  });
+};
 function bytes(n) {
   if (!n) return "0 B";
   const u = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
@@ -283,6 +316,8 @@ function locate(event) {
 }
 function inspect(hit) {
   if (!hit) return;
+  updateExplorer(hit);
+  $("explorer-error").hidden = true;
   $("freeze-selection").disabled = false;
   const d = $("details");
   d.replaceChildren();
@@ -444,6 +479,8 @@ async function load() {
   $("details").replaceChildren();
   $("selection").textContent = "—";
   hover = null;
+  updateExplorer();
+  $("explorer-error").hidden = true;
   freezeSelection(false);
   if (coveredMetric !== state.metric) {
     $("covered-list").replaceChildren();

@@ -1,8 +1,10 @@
 """Native GUI and private askpass IPC integration; never contacts a real host."""
+import base64
 import json
 import os
 from pathlib import Path
 import subprocess
+import sqlite3
 import sys
 import time
 from types import SimpleNamespace
@@ -11,9 +13,10 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS', '--disable-gpu')
 
 import pytest
-from PySide6.QtCore import QProcess, QTimer, Qt
+from PySide6.QtCore import QObject, QProcess, QTimer, Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication, QInputDialog, QLineEdit, QMessageBox
-from deckard.gui import MainWindow, create_application
+from deckard.gui import MainWindow, ReportActions, create_application
 from deckard.auth import AuthBridge, AuthRequest
 from deckard.storage import Library
 
@@ -63,7 +66,9 @@ def test_cancelled_askpass_fails_closed(app):
         bridge.close()
 
 
-def test_gui_local_scan_opens_embedded_map(app, tmp_path):
+def test_gui_local_scan_opens_embedded_map(app, tmp_path, monkeypatch):
+    opened = []
+    monkeypatch.setattr(QDesktopServices, 'openUrl', lambda url: opened.append(url.toLocalFile()) or True)
     root = tmp_path / 'source'; root.mkdir()
     (root / 'A').mkdir(); (root / 'B').mkdir()
     (root / 'A/copy').write_bytes(b'actual file contents')
@@ -87,7 +92,7 @@ def test_gui_local_scan_opens_embedded_map(app, tmp_path):
         assert window.detail_pages.currentIndex() == 1
         assert 'embedded=1' in window.web.url().query()
         assert window.pause.isHidden()
-        verify_map_selection_freeze(app, window.web)
+        verify_map_selection_freeze(app, window.web, opened, root)
         interaction = []
         window.web.page().runJavaScript("document.getElementById('zoom-in').click(); document.getElementById('zoom').textContent", interaction.append)
         until(app, lambda: bool(interaction))
@@ -247,7 +252,7 @@ def javascript(app, page, source):
     return result[0]
 
 
-def verify_map_selection_freeze(app, web):
+def verify_map_selection_freeze(app, web, opened, root):
     """Keep a chosen comparison stable while crossing other cells to its controls."""
     from PySide6.QtCore import QPoint
     from PySide6.QtTest import QTest
@@ -274,6 +279,8 @@ def verify_map_selection_freeze(app, web):
            json.dumps(dict(key=value, code=code, bubbles=True, cancelable=True)) + ")); true")
 
     assert js("document.getElementById('freeze-selection').disabled")
+    until(app, lambda: not js("document.getElementById('open-in-explorer').hidden"))
+    assert js("document.getElementById('open-in-explorer').disabled")
     assert move(0, 1) == 'A × B'
     assert move(1, 0, shift=True) == 'A × B'
     # Releasing Shift resumes ordinary hover without a persistent freeze.
@@ -282,6 +289,10 @@ def verify_map_selection_freeze(app, web):
     assert move(0, 1) == 'A × B'
     js("document.getElementById('freeze-selection').click(); true")
     assert move(1, 0) == 'A × B'
+    js("document.getElementById('open-in-explorer').click(); true")
+    until(app, lambda: len(opened) == 2)
+    assert opened == [str(root / 'A'), str(root / 'B')]
+    assert not js("document.getElementById('explorer-error').textContent")
     # Axis bands must not replace a frozen cell either.
     assert js("""canvas.dispatchEvent(new PointerEvent('pointermove', {
         clientX: canvas.getBoundingClientRect().left + layout.band + 5,
@@ -315,9 +326,76 @@ def verify_map_selection_freeze(app, web):
     assert js("document.getElementById('xpath').textContent") == 'X: A'
     assert js("document.getElementById('ypath').textContent") == 'Y: B'
     assert js("document.getElementById('freeze-selection').disabled")
+    assert js("document.getElementById('open-in-explorer').disabled")
     assert js("document.getElementById('freeze-selection').getAttribute('aria-pressed')") == 'false'
     js("document.getElementById('back').click(); true")
     until(app, lambda: js("document.getElementById('loading').classList.contains('hidden')"))
+
+
+@pytest.fixture
+def report_actions(tmp_path):
+    root = tmp_path / 'source'; root.mkdir()
+    (root / 'A # café').mkdir(); (root / 'B').mkdir()
+    folder = Library(tmp_path / 'library').create(dict(kind='local', root=str(root)))
+    report = folder / 'report'; report.mkdir()
+    with sqlite3.connect(report / 'report.sqlite3') as db:
+        db.executescript('''CREATE TABLE metadata(key TEXT, value TEXT);
+            CREATE TABLE nodes(id INTEGER, path BLOB);
+            CREATE TABLE entries(id INTEGER, parent INTEGER);''')
+        db.execute('INSERT INTO metadata VALUES (?,?)',
+                   ('source_root_base64', json.dumps(base64.b64encode(os.fsencode(root)).decode())))
+        db.executemany('INSERT INTO nodes VALUES (?,?)',
+                       [(1, b''), (2, os.fsencode('A # café')), (3, b'B'), (4, b'../')])
+        db.execute('INSERT INTO entries VALUES (1,2)')
+    window = QObject()
+    window.report_folder = report
+    window.web_page = SimpleNamespace(allowed_port=12345)
+    window.web = SimpleNamespace(url=lambda: QUrl('http://127.0.0.1:12345/?embedded=1'))
+    return ReportActions(window), root
+
+
+def test_report_actions_open_folders_and_file_parents(report_actions, monkeypatch):
+    actions, root = report_actions
+    opened = []
+    monkeypatch.setattr(QDesktopServices, 'openUrl', lambda url: opened.append(url.toLocalFile()) or True)
+    assert actions.canOpenFolders()
+    assert actions.openFolders(['d:2', 'd:3']) == ''
+    assert opened == [str(root / 'A # café'), str(root / 'B')]
+    opened.clear()
+    assert actions.openFolders(['d:2', 'f:1']) == ''
+    assert opened == [str(root / 'A # café')]
+    opened.clear()
+    assert actions.openFolders(['d:1', 'd:1']) == ''
+    assert opened == [str(root)]
+
+
+def test_report_actions_reject_unavailable_and_nonlocal_folders(report_actions, monkeypatch):
+    actions, root = report_actions
+    opened = []
+    monkeypatch.setattr(QDesktopServices, 'openUrl', lambda url: opened.append(url.toLocalFile()) or True)
+    for tokens in ([], ['d:2', 'd:3', 'd:1'], ['d:2', 'd:999'], ['d:4'], ['other:1'], ['d:nope']):
+        assert actions.openFolders(tokens)
+    (root / 'B').rmdir()
+    assert actions.openFolders(['d:2', 'd:3'])
+    assert opened == []
+    config_path = actions.window.report_folder.parent / 'job.json'
+    config = json.loads(config_path.read_text())
+    config['source']['kind'] = 'ssh'
+    config_path.write_text(json.dumps(config))
+    assert not actions.canOpenFolders()
+    assert actions.openFolders(['d:2'])
+    config['source']['kind'] = 'local'
+    config_path.write_text(json.dumps(config))
+    actions.window.web_page.allowed_port = 54321
+    assert not actions.canOpenFolders()
+    assert actions.openFolders(['d:2'])
+    assert opened == []
+
+
+def test_report_actions_return_explorer_launch_errors(report_actions, monkeypatch):
+    actions, root = report_actions
+    monkeypatch.setattr(QDesktopServices, 'openUrl', lambda url: False)
+    assert actions.openFolders(['d:2', 'd:3']) == f'Could not open: {root / "A # café"}, {root / "B"}'
 
 
 def confirm_removal(window, answer=QMessageBox.StandardButton.Yes):

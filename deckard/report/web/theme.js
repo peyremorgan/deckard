@@ -39,6 +39,8 @@
     select.addEventListener("change", () => choose(select.value));
     if (window.qt && window.QWebChannel) {
       new QWebChannel(qt.webChannelTransport, (channel) => {
+        window.DeckardReportActions = channel.objects.reportActions;
+        window.dispatchEvent(new Event("reportactionsready"));
         bridge = channel.objects.appearance;
         bridge.changed.connect(apply);
         if (pendingPreference) {
