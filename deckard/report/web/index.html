@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Deckard</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">◧ <span>DECKARD</span></a
+      ><span class="local">LOCAL REPORT <i></i></span>
+    </header>
+    <main>
+      <div class="intro">
+        <div>
+          <p class="eyebrow">YOUR FILES, IN RELATION</p>
+          <h1>Find the overlap.</h1>
+          <p class="lede">
+            A map of shared contents. Larger bands mean more bytes; warmer cells
+            mean more duplication.
+          </p>
+        </div>
+        <div class="snapshot" id="snapshot">Loading scan…</div>
+      </div>
+      <section class="stats" aria-label="Scan totals">
+        <div>
+          <span>ALLOCATED FILE BYTES</span><strong id="allocated">—</strong>
+        </div>
+        <div>
+          <span>LOGICAL FILE BYTES</span><strong id="logical">—</strong>
+        </div>
+        <div><span>FILES INDEXED</span><strong id="files">—</strong></div>
+        <div>
+          <span>ENTRIES OUTSIDE COMPARISON</span><strong id="skipped">—</strong>
+        </div>
+      </section>
+      <div class="toolbar">
+        <label
+          >Size basis
+          <select id="metric">
+            <option value="allocated">Allocated on disk</option>
+            <option value="logical">Logical file size</option>
+          </select></label
+        >
+        <div class="tools">
+          <button id="back">← Back</button><button id="swap">Swap axes</button
+          ><button id="fit">Fit</button><button id="reset">Root ↗</button>
+        </div>
+      </div>
+      <section class="workspace">
+        <div class="map-panel">
+          <div class="axis-paths">
+            <span id="xpath">X · Root</span><span id="ypath">Y · Root</span>
+          </div>
+          <div class="map-wrap" id="map-wrap">
+            <canvas
+              id="map"
+              aria-label="Zoomable duplicate similarity matrix"
+              tabindex="0"
+            ></canvas>
+            <div class="loading" id="loading">
+              <span></span>Comparing file contents…
+            </div>
+          </div>
+          <div class="map-footer">
+            <span
+              >Scroll to zoom · drag to pan · double-click a cell to open both
+              folders</span
+            >
+            <div class="zoom-controls">
+              <button id="zoom-out" aria-label="Zoom out">−</button
+              ><span id="zoom">100%</span
+              ><button id="zoom-in" aria-label="Zoom in">+</button>
+            </div>
+          </div>
+        </div>
+        <aside>
+          <p class="eyebrow">INSPECT THE MAP</p>
+          <h2 id="selection">Every intersection<br />tells a story.</h2>
+          <p class="hint" id="hint">
+            Move over a cell to compare two items. Click a band to open that
+            axis, or choose an item below.
+          </p>
+          <div id="details"></div>
+          <div class="legend">
+            <p>SHARED-BYTE SIMILARITY</p>
+            <div class="gradient"></div>
+            <div class="legend-ticks"><span>0%</span><span>100%</span></div>
+            <p class="key">
+              <i class="purple"></i> All contents covered by one counterpart
+            </p>
+            <p class="key">
+              <i class="teal"></i> Folder contents all available elsewhere
+            </p>
+            <p class="key">
+              <i class="diagonal"></i> Same / overlapping scope: open to explore
+            </p>
+          </div>
+          <div class="formula">
+            S / √(A × B)<small
+              >S is matched bytes, counted once per counterpart. Full coverage
+              is checked by file content, including empty files.</small
+            >
+          </div>
+        </aside>
+      </section>
+      <section class="explorer">
+        <div class="explorer-head">
+          <div>
+            <p class="eyebrow">EXPLORE WITHOUT LOSING THE SMALL ITEMS</p>
+            <h2>Folders & files</h2>
+          </div>
+          <label
+            >Axis
+            <select id="list-axis">
+              <option value="x">Horizontal · X</option>
+              <option value="y">Vertical · Y</option>
+            </select></label
+          >
+        </div>
+        <div id="item-list"></div>
+      </section>
+      <section class="explorer">
+        <div class="explorer-head">
+          <div>
+            <p class="eyebrow">START WITH THE LARGEST CANDIDATES</p>
+            <h2>Entire contents available elsewhere</h2>
+          </div>
+          <button id="covered-load">Find covered folders ↗</button>
+        </div>
+        <p class="hint">
+          Shows the largest covered folders without a covered parent. Find a
+          keeper to distinguish one retained location from copies spread across
+          locations.
+        </p>
+        <div id="covered-list"></div>
+      </section>
+      <footer>
+        <p>
+          <strong>What the colors establish.</strong> Teal means every
+          regular-file content has a matching occurrence outside that folder,
+          possibly spread across multiple locations. Purple means a single
+          disjoint counterpart in this view covers all contents in one
+          direction. Names and directory layout may differ. Unreadable or
+          skipped contents block full-coverage claims.
+        </p>
+        <p>
+          Keep a complete copy before removing anything. Reciprocal coverage
+          marks alternatives; it does not mean both folders can be removed. This
+          report does not delete files. Allocated file bytes exclude directory
+          metadata; hardlinks, compression and storage sharing can change the
+          physical space recovered.
+        </p>
+        <p id="source"></p>
+      </footer>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

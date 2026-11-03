@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deckard-desktop"
+version = "0.1.0"
+description = "Local and agentless SSH duplicate discovery with a desktop overlap explorer"
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+dependencies = ["PySide6>=6.8,<7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.gui-scripts]
+deckard = "deckard.gui:main"
+
+[tool.setuptools.packages.find]
+include = ["deckard*"]
+
+[tool.setuptools.package-data]
+"deckard.report" = ["web/*.html", "web/*.css", "web/*.js"]
+"deckard" = ["assets/*.svg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
