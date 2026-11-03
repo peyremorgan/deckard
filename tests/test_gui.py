@@ -91,6 +91,15 @@ def test_gui_local_scan_opens_embedded_map(app, tmp_path):
         until(app, lambda: bool(interaction))
         assert interaction == ['150%']
         window.grab().save(str(tmp_path / 'desktop.png'))
+        window.library.create({'kind': 'local', 'root': str(root), 'workers': 2})
+        window.refresh_library()
+        window.jobs.setCurrentRow(0)
+        assert window.detail_pages.currentIndex() == 0
+        assert not window.status_card.isHidden()
+        window.jobs.setCurrentRow(1)
+        assert window.detail_pages.currentIndex() == 1
+        assert window.status_card.isHidden()
+        until(app, lambda: window.web.url().host() == '127.0.0.1')
     finally:
         window.close(); app.processEvents()
 

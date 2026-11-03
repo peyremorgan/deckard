@@ -321,6 +321,8 @@ class MainWindow(QMainWindow):
         self.status_card.show()
         self.detail_pages.setCurrentIndex(0)
         self.update_metrics()
+        if cfg.get('status') == 'complete' and ready and not running:
+            self.open_current_report()
 
     def resume_current(self):
         if self.current is not None and not self.is_running():
@@ -454,8 +456,6 @@ class MainWindow(QMainWindow):
         self.refresh_library()
         if self.current == path:
             self.show_job()
-            if cfg.get('status') == 'complete':
-                self.open_report(path / 'report')
         if self.closing:
             self.finish_close()
 
