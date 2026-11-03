@@ -3,7 +3,7 @@
 Find duplicate files on your computer or a remote server to see where extra
 copies are taking up space.
 
-![Deckard showing matching file contents in two folders during the GUI end-to-end test](docs/images/desktop.png)
+![Deckard showing matching file contents in two folders during the GUI end-to-end test](docs/images/map.png)
 
 Native PySide6 controls manage scans; the embedded overlap
 map shows byte-weighted relationships between folders and files.
