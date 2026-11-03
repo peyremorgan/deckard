@@ -8,7 +8,8 @@ import sys
 def main():
     request = {'token': os.environ['DECKARD_AUTH_TOKEN'],
                'prompt': sys.argv[1] if len(sys.argv) > 1 else 'SSH authentication',
-               'kind': os.environ.get('SSH_ASKPASS_PROMPT', '')}
+               'kind': os.environ.get('SSH_ASKPASS_PROMPT', ''),
+               'purpose': os.environ.get('DECKARD_AUTH_PURPOSE', 'scan')}
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.connect(os.environ['DECKARD_AUTH_SOCKET'])
         connection.sendall((json.dumps(request) + '\n').encode())

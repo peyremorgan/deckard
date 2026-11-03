@@ -14,8 +14,9 @@ from PySide6.QtCore import QObject, Signal
 
 
 class AuthRequest:
-    def __init__(self, prompt, kind):
+    def __init__(self, prompt, kind, purpose='scan'):
         self.prompt, self.kind = prompt, kind
+        self.purpose = purpose
         self.done = threading.Event()
         self.response = None
 
@@ -44,7 +45,8 @@ class AuthBridge(QObject):
                     value = json.loads(self.rfile.readline(65537))
                     if not hmac.compare_digest(str(value.get('token', '')), bridge.token):
                         return
-                    request = AuthRequest(str(value.get('prompt', 'SSH authentication')), str(value.get('kind', '')))
+                    request = AuthRequest(str(value.get('prompt', 'SSH authentication')), str(value.get('kind', '')),
+                                          str(value.get('purpose', 'scan')))
                     with bridge.lock:
                         if bridge.closed:
                             return
@@ -78,10 +80,11 @@ class AuthBridge(QObject):
                 'DISPLAY': os.environ.get('DISPLAY') or 'deckard:0',
                 'DECKARD_AUTH_SOCKET': self.socket_path, 'DECKARD_AUTH_TOKEN': self.token}
 
-    def cancel_pending(self):
+    def cancel_pending(self, purpose=None):
         with self.lock:
             for request in self.pending:
-                request.answer(None)
+                if purpose is None or request.purpose == purpose:
+                    request.answer(None)
 
     def close(self):
         if self.closed:

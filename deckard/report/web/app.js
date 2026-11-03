@@ -44,6 +44,12 @@ function updateSelectionActions(hit = hover) {
 }
 function connectReportActions() {
   if (!window.DeckardReportActions) return;
+  window.DeckardReportActions.foldersOpened.connect((error) => {
+    explorerOpening = false;
+    $("explorer-error").textContent = error;
+    $("explorer-error").hidden = !error;
+    updateSelectionActions();
+  });
   window.DeckardReportActions.canOpenFolders((available) => {
     explorerAvailable = available;
     updateSelectionActions();
@@ -59,13 +65,9 @@ $("open-in-explorer").onclick = () => {
   if (!explorerAvailable || explorerOpening || !tokens.length) return;
   explorerOpening = true;
   updateSelectionActions();
-  $("explorer-error").hidden = true;
-  window.DeckardReportActions.openFolders(tokens, (error) => {
-    explorerOpening = false;
-    $("explorer-error").textContent = error;
-    $("explorer-error").hidden = !error;
-    updateSelectionActions();
-  });
+  $("explorer-error").textContent = "Opening folders…";
+  $("explorer-error").hidden = false;
+  window.DeckardReportActions.openFolders(tokens);
 };
 function bytes(n) {
   if (!n) return "0 B";

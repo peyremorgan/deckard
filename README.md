@@ -79,10 +79,27 @@ Shift+click a cell or axis band to freeze its selection, then move to the right
 panel to use **Show in matrix** or read its details. **Space** over the map or
 **Freeze selection** also freezes the current selection; **Escape** or
 **Resume hover** restores hover updates. Opening a new view clears the freeze.
-For local scans in the desktop app, **Open in Finder** on macOS or
+In the desktop app, **Open in Finder** on macOS or
 **Open in explorer** on other systems in the Selection panel
 opens both selected folders in the system file explorer. File selections open
 their containing folders; a shared folder opens once.
+
+For SSH scans, the same action creates a temporary **writable SSHFS mount** of
+the scanned folder on your computer, then opens the selected folders. Changes
+and deletions made in your file manager apply directly to the remote files.
+Deckard uses your saved host, username, port and identity settings, with the
+same keys-first SSH login and private password dialogs as scanning. A new login
+may be needed because completed scans disconnect their scanner connections.
+The server must support SFTP in addition to SSH.
+
+Install [macFUSE and SSHFS](https://github.com/macfuse/macfuse/wiki/File-Systems-%E2%80%90-SSHFS)
+on macOS, or your distribution's `sshfs` package on Linux. These are optional
+local dependencies; remote scanning does not require them. A missing dependency
+or failed mount is explained in the Selection panel. No installation is automatic.
+Mounts are reused while Deckard is open and disconnected when it closes. If a
+mount is busy, close files and file manager windows using it and close Deckard
+again. Switching reports or removing saved scan data leaves these mounts
+available until exit. Standalone browser reports cannot open local or SSH folders.
 
 The desktop and report viewer use compact industrial panels and a dark matrix.
 **Settings → Theme** offers **Light**, **Dark**, and **System** (the default).
@@ -103,7 +120,8 @@ coverage spread across multiple locations. Empty files, hardlinks, unreadable
 entries and skipped items are included in the coverage checks. Ancestor and
 self-matches do not prove duplication.
 
-This is a read-only discovery tool. Coverage compares regular-file contents,
+Scanning and report browsing are read-only. Opening SSH folders exposes a
+writable mount for manual cleanup in your file manager. Coverage compares regular-file contents,
 not names, layout, ACLs, xattrs or resource forks. Symlinks and other filesystems
 are skipped and block complete-folder claims. Allocated sizes are per path and
 exclude directory metadata; hardlinks and storage sharing affect physical space
@@ -118,6 +136,7 @@ a filesystem snapshot; re-check before deleting modified data.
   → full SHA-256 pipeline, with the existing 16-file batches and two-worker default.
 - `deckard/ssh.py`, `auth.py`, `askpass.py`: native SSH, keys-first login and local
   ephemeral credential IPC.
+- `deckard/folders.py`: optional SSHFS mounts and file-manager folder validation.
 - `deckard/bootstrap.py`, `remote.py`, `worker.py`, `protocol.py`: streamed,
   read-only in-memory workers and a bounded protocol.
 - `deckard/report/`: deterministic Python report generation and JSON query model,

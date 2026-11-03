@@ -8,9 +8,10 @@ import signal
 import sqlite3
 from pathlib import Path
 import sys
+import threading
 import time
 
-from PySide6.QtCore import Qt, QProcess, QProcessEnvironment, QTimer, QUrl, Slot, QFile, QIODevice, QObject
+from PySide6.QtCore import Qt, QProcess, QProcessEnvironment, QTimer, QUrl, Slot, Signal, QFile, QIODevice, QObject
 from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QActionGroup, QColor
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QFrame, QLabel, QPushButton, QLineEdit, QFileDialog, QStackedWidget,
@@ -26,6 +27,7 @@ from .theme import ThemeManager, PALETTES
 from .auth import AuthBridge
 from .storage import Library, atomic_json
 from .ssh import validate_target
+from .folders import RemoteFolders, selected_folders
 from .report.model import readonly
 
 
@@ -63,40 +65,72 @@ class ReportPage(QWebEnginePage):
                 (url.scheme() == 'http' and url.host() == '127.0.0.1' and url.port() == self.allowed_port))
 
 
+class FolderSignals(QObject):
+    ready = Signal(object, object, str)
+
+
 class ReportActions(QObject):
-    """Open only folders identified by the active local report's item tokens."""
+    """Open only folders identified by the active report's item tokens."""
+    foldersOpened = Signal(str)
+    shutdownFinished = Signal(str)
+
     def __init__(self, window):
         super().__init__(window)
         self.window = window
+        self.remote = RemoteFolders()
+        self.worker = None
+        self.busy = False
+        self.cancelled = threading.Event()
+        self.stopping = False
+        self.closed = False
+        self.signals = FolderSignals(self)
+        self.signals.ready.connect(self._open_ready)
+        self.shutdownFinished.connect(self.shutdown_complete)
 
-    def local_report(self):
+    def active_report(self):
         window = self.window
         url = window.web.url()
         if (window.report_folder is None or url.scheme() != 'http' or
                 url.host() != '127.0.0.1' or url.port() != window.web_page.allowed_port):
             return None
         config = json.loads((window.report_folder.parent / 'job.json').read_text())
-        return window.report_folder if config['source']['kind'] == 'local' else None
+        return (window.report_folder, config['source']) if config['source']['kind'] in ('local', 'ssh') else None
 
     @Slot(result=bool)
     def canOpenFolders(self):
         try:
-            return self.local_report() is not None
-        except (OSError, ValueError, KeyError):
+            return not self.stopping and not self.closed and self.active_report() is not None
+        except (OSError, ValueError, KeyError, TypeError):
             return False
 
-    @Slot('QStringList', result=str)
+    @Slot('QStringList')
     def openFolders(self, tokens):
+        if self.busy or self.stopping or self.closed:
+            return
         try:
-            report = self.local_report()
-            if report is None:
-                raise ValueError('Opening folders is available only for local scans.')
+            active = self.active_report()
+            if active is None:
+                raise ValueError('Opening folders requires a scan opened in the desktop app.')
             if not 1 <= len(tokens) <= 2:
                 raise ValueError('Select a folder comparison first.')
-            folders = []
+            environment = dict(os.environ)
+            if hasattr(self.window, 'auth'):
+                environment.update(self.window.auth.environment())
+            environment['DECKARD_AUTH_PURPOSE'] = 'folders'
+            self.busy = True
+            self.worker = threading.Thread(target=self._prepare, args=(active, list(tokens), environment), daemon=True)
+            self.worker.start()
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            self.foldersOpened.emit(str(exc))
+
+    def _prepare(self, active, tokens, environment):
+        folders, error = [], ''
+        try:
+            report, target = active
             with contextlib.closing(readonly(report / 'report.sqlite3')) as db:
                 metadata = db.execute("SELECT value FROM metadata WHERE key='source_root_base64'").fetchone()
-                root = Path(os.fsdecode(base64.b64decode(json.loads(metadata[0])))).resolve(strict=True)
+                root = base64.b64decode(json.loads(metadata[0]), validate=True)
+                paths = []
                 for token in tokens:
                     kind, ident = token.split(':', 1)
                     if kind == 'd':
@@ -108,17 +142,63 @@ class ReportActions(QObject):
                         raise ValueError('Select individual folders or files first.')
                     if row is None:
                         raise ValueError('The selected item is no longer in this report.')
-                    folder = (root / os.fsdecode(bytes(row[0]))).resolve(strict=True)
-                    if not folder.is_relative_to(root) or not folder.is_dir():
-                        raise ValueError('The selected folder is no longer available in the scan source.')
-                    if folder not in folders:
-                        folders.append(folder)
-            # Validate both locations before launching either one.
-            failed = [str(folder) for folder in folders
-                      if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))]
-            return 'Could not open: ' + ', '.join(failed) if failed else ''
-        except (OSError, ValueError, KeyError, TypeError, IndexError, RuntimeError, sqlite3.Error) as exc:
-            return str(exc)
+                    path = bytes(row[0])
+                    if path.startswith(b'/') or b'..' in path.split(b'/') or b'\0' in path:
+                        raise ValueError('The selected folder is outside the scan source.')
+                    paths.append(path)
+            if target['kind'] == 'ssh':
+                folders = self.remote.folders(target, root, paths, environment, self.cancelled)
+            else:
+                folders = selected_folders(os.fsdecode(root), paths)
+        except (OSError, ValueError, KeyError, TypeError, IndexError, OverflowError, RuntimeError, sqlite3.Error) as exc:
+            error = str(exc)
+        except KeyboardInterrupt:
+            error = 'Opening the SSH folder was cancelled.'
+        self.signals.ready.emit(active, folders, error)
+
+    @Slot(object, object, str)
+    def _open_ready(self, active, folders, error):
+        self.busy = False
+        try:
+            if self.stopping or self.active_report() != active:
+                error = 'The report changed before the folders could be opened.'
+            elif not error:
+                failed = [str(folder) for folder in folders
+                          if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))]
+                error = 'Could not open: ' + ', '.join(failed) if failed else ''
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            error = str(exc)
+        self.foldersOpened.emit(error)
+
+    def close(self):
+        if self.closed:
+            return True
+        if self.stopping:
+            return False
+        if not self.busy and not self.remote.mounts:
+            self.closed = True
+            return True
+        self.stopping = True
+        self.cancelled.set()
+        threading.Thread(target=self._shutdown, daemon=True).start()
+        return False
+
+    def _shutdown(self):
+        error = ''
+        if self.worker is not None:
+            self.worker.join()
+        try:
+            self.remote.close()
+        except (OSError, RuntimeError) as exc:
+            error = str(exc)
+        self.shutdownFinished.emit(error)
+
+    @Slot(str)
+    def shutdown_complete(self, error):
+        self.stopping = False
+        self.closed = not error
+        if error:
+            self.cancelled.clear()
 
 
 class SourcePages(QWidget):
@@ -160,6 +240,7 @@ class MainWindow(QMainWindow):
         self.started = 0
         self.worker_pid = None
         self.auth_dialog = None
+        self.auth_request = None
         self.auth = AuthBridge(self)
         self.auth.requested.connect(self.authentication_requested)
         self.setWindowTitle('Deckard')
@@ -260,6 +341,7 @@ class MainWindow(QMainWindow):
         self.web_channel = QWebChannel(self.web_page)
         self.web_channel.registerObject('appearance', self.appearance)
         self.report_actions = ReportActions(self)
+        self.report_actions.shutdownFinished.connect(self.folders_shutdown)
         self.web_channel.registerObject('reportActions', self.report_actions)
         self.web_page.setWebChannel(self.web_channel)
         resource = QFile(':/qtwebchannel/qwebchannel.js')
@@ -576,7 +658,7 @@ class MainWindow(QMainWindow):
 
     def pause_scan(self):
         if self.is_running():
-            self.auth.cancel_pending()
+            self.auth.cancel_pending('scan')
             self.phase.setText('Saving checkpoints…'); self.pause.setEnabled(False)
             proc = self.process
             proc.terminate()
@@ -596,9 +678,9 @@ class MainWindow(QMainWindow):
 
     def scan_finished(self, code, status):
         self.read_events(); self.read_errors()
-        if self.auth_dialog is not None:
+        if self.auth_dialog is not None and self.auth_request.purpose == 'scan':
             self.auth_dialog.reject()
-        self.auth.cancel_pending()
+        self.auth.cancel_pending('scan')
         self.pause.setEnabled(True); self.start.setEnabled(True)
         path = self.active_folder
         cfg = json.loads((path / 'job.json').read_text())
@@ -616,10 +698,16 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def authentication_requested(self, request):
-        if not self.is_running() or self.pending_removal is not None or request.done.is_set():
+        folders = request.purpose == 'folders'
+        if (self.closing or (not self.report_actions.busy if folders else not self.is_running()) or
+                self.pending_removal is not None or request.done.is_set()):
             request.answer(None); return
+        if self.auth_dialog is not None:
+            QTimer.singleShot(100, lambda: self.authentication_requested(request))
+            return
         if request.kind == 'none':
             self.note.setText(request.prompt); self.note.show(); request.answer(''); return
+        self.auth_request = request
         confirm = request.kind == 'confirm' or 'yes/no' in request.prompt.lower()
         if confirm:
             dialog = QMessageBox(self)
@@ -639,8 +727,9 @@ class MainWindow(QMainWindow):
             accepted = dialog.exec(); response = dialog.textValue() if accepted else None
             dialog.setTextValue(''); self.auth_dialog = None
             request.answer(response)
-            if response is None:
+            if response is None and not folders:
                 self.pause_scan()
+        self.auth_request = None
 
     def choose_report(self):
         path = QFileDialog.getExistingDirectory(self, 'Open a Deckard report', str(self.library.root))
@@ -737,7 +826,22 @@ class MainWindow(QMainWindow):
         if self.is_running():
             self.closing = True; self.pause_scan(); event.ignore()
         else:
-            self.stop_report(); self.auth.close(); event.accept()
+            self.closing = True
+            if self.auth_dialog is not None:
+                self.auth_dialog.reject()
+            self.auth.cancel_pending()
+            if self.report_actions.close():
+                self.stop_report(); self.auth.close(); event.accept()
+            else:
+                event.ignore()
+
+    @Slot(str)
+    def folders_shutdown(self, error):
+        if error:
+            self.closing = False
+            QMessageBox.warning(self, 'Could not disconnect SSH folders', error)
+        else:
+            self.close()
 
     def finish_close(self):
         self.closing = False

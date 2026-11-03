@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sqlite3
 import sys
+import threading
 import time
 from types import SimpleNamespace
 
@@ -66,7 +67,8 @@ def test_cancelled_askpass_fails_closed(app):
         bridge.close()
 
 
-def test_gui_local_scan_opens_embedded_map(app, tmp_path, monkeypatch):
+@pytest.mark.parametrize('report_source', ['local', 'ssh'])
+def test_gui_scan_opens_embedded_map_and_selected_folders(app, tmp_path, monkeypatch, report_source):
     opened = []
     monkeypatch.setattr(QDesktopServices, 'openUrl', lambda url: opened.append(url.toLocalFile()) or True)
     root = tmp_path / 'source'; root.mkdir()
@@ -74,6 +76,12 @@ def test_gui_local_scan_opens_embedded_map(app, tmp_path, monkeypatch):
     (root / 'A/copy').write_bytes(b'actual file contents')
     (root / 'B/copy').write_bytes(b'actual file contents')
     window = MainWindow(Library(tmp_path / 'library'))
+    mounted = []
+    def mount_folders(target, source_root, paths, environment, cancelled):
+        from deckard.folders import selected_folders
+        mounted.append((target, source_root))
+        return selected_folders(os.fsdecode(source_root), paths)
+    monkeypatch.setattr(window.report_actions.remote, 'folders', mount_folders)
     window.show()
     try:
         window.local_path.setText(str(root))
@@ -82,6 +90,13 @@ def test_gui_local_scan_opens_embedded_map(app, tmp_path, monkeypatch):
         window.process.started.connect(lambda: groups.append((window.process.processId(), os.getpgid(window.process.processId()))))
         until(app, lambda: window.process is not None and window.process.state().value == 0, timeout=30)
         assert groups and groups[0][0] == groups[0][1]
+        if report_source == 'ssh':
+            config_path = window.current / 'job.json'
+            config = json.loads(config_path.read_text())
+            config['source'] = dict(kind='ssh', host='ssh-config-alias', user='user', port=2222,
+                                    identity='/key with spaces', root='~')
+            config_path.write_text(json.dumps(config))
+            window.web.reload()
         until(app, lambda: window.web.url().host() == '127.0.0.1')
         ready = []
         def check():
@@ -93,6 +108,10 @@ def test_gui_local_scan_opens_embedded_map(app, tmp_path, monkeypatch):
         assert 'embedded=1' in window.web.url().query()
         assert window.pause.isHidden()
         verify_map_selection_freeze(app, window.web, opened, root)
+        if report_source == 'ssh':
+            assert mounted == [(cfg['source'], os.fsencode(root))]
+        else:
+            assert mounted == []
         interaction = []
         window.web.page().runJavaScript("document.getElementById('zoom-in').click(); document.getElementById('zoom').textContent", interaction.append)
         until(app, lambda: bool(interaction))
@@ -341,7 +360,7 @@ def verify_map_selection_freeze(app, web, opened, root):
 
 
 @pytest.fixture
-def report_actions(tmp_path):
+def report_actions(app, tmp_path):
     root = tmp_path / 'source'; root.mkdir()
     (root / 'A # café').mkdir(); (root / 'B').mkdir()
     folder = Library(tmp_path / 'library').create(dict(kind='local', root=str(root)))
@@ -359,51 +378,138 @@ def report_actions(tmp_path):
     window.report_folder = report
     window.web_page = SimpleNamespace(allowed_port=12345)
     window.web = SimpleNamespace(url=lambda: QUrl('http://127.0.0.1:12345/?embedded=1'))
-    return ReportActions(window), root
+    actions = ReportActions(window)
+    yield actions, root
+    if not actions.close():
+        until(app, lambda: actions.closed)
 
 
-def test_report_actions_open_folders_and_file_parents(report_actions, monkeypatch):
+def open_folders(app, actions, tokens):
+    results = []
+    actions.foldersOpened.connect(results.append)
+    try:
+        actions.openFolders(tokens)
+        until(app, lambda: bool(results))
+        return results[0]
+    finally:
+        actions.foldersOpened.disconnect(results.append)
+
+
+def test_report_actions_open_folders_and_file_parents(app, report_actions, monkeypatch):
     actions, root = report_actions
     opened = []
     monkeypatch.setattr(QDesktopServices, 'openUrl', lambda url: opened.append(url.toLocalFile()) or True)
     assert actions.canOpenFolders()
-    assert actions.openFolders(['d:2', 'd:3']) == ''
+    assert open_folders(app, actions, ['d:2', 'd:3']) == ''
     assert opened == [str(root / 'A # café'), str(root / 'B')]
     opened.clear()
-    assert actions.openFolders(['d:2', 'f:1']) == ''
+    assert open_folders(app, actions, ['d:2', 'f:1']) == ''
     assert opened == [str(root / 'A # café')]
     opened.clear()
-    assert actions.openFolders(['d:1', 'd:1']) == ''
+    assert open_folders(app, actions, ['d:1', 'd:1']) == ''
     assert opened == [str(root)]
 
 
-def test_report_actions_reject_unavailable_and_nonlocal_folders(report_actions, monkeypatch):
+def test_report_actions_reject_unavailable_and_untrusted_folders(app, report_actions, monkeypatch):
     actions, root = report_actions
     opened = []
     monkeypatch.setattr(QDesktopServices, 'openUrl', lambda url: opened.append(url.toLocalFile()) or True)
     for tokens in ([], ['d:2', 'd:3', 'd:1'], ['d:2', 'd:999'], ['d:4'], ['other:1'], ['d:nope']):
-        assert actions.openFolders(tokens)
+        assert open_folders(app, actions, tokens)
     (root / 'B').rmdir()
-    assert actions.openFolders(['d:2', 'd:3'])
+    assert open_folders(app, actions, ['d:2', 'd:3'])
     assert opened == []
     config_path = actions.window.report_folder.parent / 'job.json'
     config = json.loads(config_path.read_text())
     config['source']['kind'] = 'ssh'
     config_path.write_text(json.dumps(config))
-    assert not actions.canOpenFolders()
-    assert actions.openFolders(['d:2'])
+    assert actions.canOpenFolders()
+    assert open_folders(app, actions, ['d:2'])  # Missing SSH target is not a local fallback.
     config['source']['kind'] = 'local'
     config_path.write_text(json.dumps(config))
     actions.window.web_page.allowed_port = 54321
     assert not actions.canOpenFolders()
-    assert actions.openFolders(['d:2'])
+    assert open_folders(app, actions, ['d:2'])
     assert opened == []
 
 
-def test_report_actions_return_explorer_launch_errors(report_actions, monkeypatch):
+def test_report_actions_return_explorer_launch_errors(app, report_actions, monkeypatch):
     actions, root = report_actions
     monkeypatch.setattr(QDesktopServices, 'openUrl', lambda url: False)
-    assert actions.openFolders(['d:2', 'd:3']) == f'Could not open: {root / "A # café"}, {root / "B"}'
+    assert open_folders(app, actions, ['d:2', 'd:3']) == f'Could not open: {root / "A # café"}, {root / "B"}'
+
+
+@pytest.mark.parametrize('interruption', ['navigate', 'close'])
+def test_remote_open_stays_responsive_and_discards_interrupted_results(app, report_actions, monkeypatch, interruption):
+    actions, root = report_actions
+    config_path = actions.window.report_folder.parent / 'job.json'
+    config = json.loads(config_path.read_text())
+    config['source'] = dict(kind='ssh', host='alias', root='~')
+    config_path.write_text(json.dumps(config))
+    started, release = threading.Event(), threading.Event()
+    opened, results = [], []
+    def remote_folders(target, source_root, paths, environment, cancelled):
+        assert source_root == os.fsencode(root)
+        assert environment['DECKARD_AUTH_PURPOSE'] == 'folders'
+        started.set()
+        if interruption == 'close':
+            assert cancelled.wait(5)
+            raise KeyboardInterrupt()
+        assert release.wait(5)
+        return [root / 'B']
+    monkeypatch.setattr(actions.remote, 'folders', remote_folders)
+    monkeypatch.setattr(QDesktopServices, 'openUrl', lambda url: opened.append(url) or True)
+    actions.foldersOpened.connect(results.append)
+    actions.openFolders(['d:2', 'd:3'])
+    until(app, started.is_set)
+    assert actions.busy
+    if interruption == 'navigate':
+        actions.window.web_page.allowed_port = 54321
+        release.set()
+        until(app, lambda: bool(results))
+    else:
+        assert not actions.close()
+        until(app, lambda: actions.closed)
+    assert results and results[0] and not opened
+
+
+def test_remote_authentication_cancel_does_not_pause_scan(app, tmp_path, monkeypatch):
+    window = MainWindow(Library(tmp_path / 'library'))
+    paused = []
+    monkeypatch.setattr(window, 'pause_scan', lambda: paused.append(True))
+    request = AuthRequest('Password:', '', 'folders')
+    window.report_actions.busy = True
+    try:
+        QTimer.singleShot(0, lambda: window.auth_dialog.reject())
+        window.authentication_requested(request)
+        assert request.done.is_set() and request.response is None
+        assert not paused
+    finally:
+        window.report_actions.busy = False
+        window.close(); app.processEvents()
+
+
+def test_window_waits_for_unmount_and_can_retry_a_busy_mount(app, tmp_path, monkeypatch):
+    window = MainWindow(Library(tmp_path / 'library')); window.show()
+    errors = []
+    window.report_actions.remote.mounts['test'] = object()
+    def disconnect():
+        if not errors:
+            raise RuntimeError('Mount busy')
+        window.report_actions.remote.mounts.clear()
+    monkeypatch.setattr(window.report_actions.remote, 'close', disconnect)
+    monkeypatch.setattr(QMessageBox, 'warning', lambda parent, title, message: errors.append(message))
+    try:
+        window.close()
+        until(app, lambda: bool(errors))
+        assert window.isVisible() and not window.closing and not window.auth.closed
+        assert not window.report_actions.closed
+        window.close()
+        until(app, lambda: window.auth.closed)
+        assert window.report_actions.closed and not window.isVisible()
+    finally:
+        window.report_actions.remote.mounts.clear()
+        window.close(); app.processEvents()
 
 
 def confirm_removal(window, answer=QMessageBox.StandardButton.Yes):
