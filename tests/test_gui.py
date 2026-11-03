@@ -279,9 +279,13 @@ def verify_map_selection_freeze(app, web, opened, root):
            json.dumps(dict(key=value, code=code, bubbles=True, cancelable=True)) + ")); true")
 
     assert js("document.getElementById('freeze-selection').disabled")
-    until(app, lambda: not js("document.getElementById('open-in-explorer').hidden"))
+    assert js("document.getElementById('open-in-explorer').hidden")
+    assert js("document.getElementById('selection-actions').hidden")
     assert js("document.getElementById('open-in-explorer').disabled")
     assert move(0, 1) == 'A × B'
+    until(app, lambda: not js("document.getElementById('open-in-explorer').hidden"))
+    assert js("document.getElementById('open-comparison').nextElementSibling.id") == 'open-in-explorer'
+    assert not js("document.getElementById('selection-actions').hidden")
     assert move(1, 0, shift=True) == 'A × B'
     # Releasing Shift resumes ordinary hover without a persistent freeze.
     assert js("document.getElementById('freeze-selection').getAttribute('aria-pressed')") == 'false'
@@ -321,12 +325,14 @@ def verify_map_selection_freeze(app, web, opened, root):
     until(app, lambda: js("document.getElementById('freeze-selection').getAttribute('aria-pressed')") == 'true')
     assert move(1, 0) == 'A × B'
     # The retained button must open the frozen comparison, then clear its freeze.
-    js("document.querySelector('#details button').click(); true")
+    js("document.getElementById('open-comparison').click(); true")
     until(app, lambda: js("document.getElementById('loading').classList.contains('hidden')"))
     assert js("document.getElementById('xpath').textContent") == 'X: A'
     assert js("document.getElementById('ypath').textContent") == 'Y: B'
     assert js("document.getElementById('freeze-selection').disabled")
     assert js("document.getElementById('open-in-explorer').disabled")
+    assert js("document.getElementById('open-in-explorer').hidden")
+    assert js("document.getElementById('selection-actions').hidden")
     assert js("document.getElementById('freeze-selection').getAttribute('aria-pressed')") == 'false'
     js("document.getElementById('back').click(); true")
     until(app, lambda: js("document.getElementById('loading').classList.contains('hidden')"))

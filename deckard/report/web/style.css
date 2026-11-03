@@ -118,6 +118,8 @@ h3 { font: bold 12px Consolas, Menlo, monospace; overflow-wrap: anywhere; margin
 #explorer-error { margin: 6px 0 0; font-size: 11px; overflow-wrap: anywhere; }
 #details { padding: 0 10px 10px; font-size: 11px; }
 #details:empty { display: none; }
+#selection-actions { padding: 0 10px 10px; }
+.selection-action-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
 #details dl { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin: 0 0 10px; }
 #details dt { color: var(--muted); font-size: 9px; align-self: center; }
 #details dd { margin: 0; font: 11px Consolas, Menlo, monospace; text-align: right; overflow-wrap: anywhere; }

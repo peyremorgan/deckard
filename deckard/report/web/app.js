@@ -34,30 +34,35 @@ function explorerTokens(hit = hover) {
   return items.every((item) => item.kind === "folder" || item.kind === "file")
     ? items.map((item) => item.token) : [];
 }
-function updateExplorer(hit = hover) {
-  $("open-in-explorer").hidden = !explorerAvailable;
-  $("open-in-explorer").disabled = explorerOpening || !explorerTokens(hit).length;
+function updateSelectionActions(hit = hover) {
+  const cell = hit && !hit.axis && view ? view.cells[hit.a][hit.b] : null;
+  const tokens = explorerTokens(hit);
+  $("open-comparison").hidden = !cell || cell.overlap;
+  $("open-in-explorer").hidden = !explorerAvailable || !tokens.length;
+  $("open-in-explorer").disabled = explorerOpening || !tokens.length;
+  $("selection-actions").hidden = $("open-comparison").hidden && $("open-in-explorer").hidden;
 }
 function connectReportActions() {
   if (!window.DeckardReportActions) return;
   window.DeckardReportActions.canOpenFolders((available) => {
     explorerAvailable = available;
-    updateExplorer();
+    updateSelectionActions();
   });
 }
 window.addEventListener("reportactionsready", connectReportActions);
 connectReportActions();
+$("open-comparison").onclick = () => openCell(hover);
 $("open-in-explorer").onclick = () => {
   const tokens = explorerTokens();
   if (!explorerAvailable || explorerOpening || !tokens.length) return;
   explorerOpening = true;
-  updateExplorer();
+  updateSelectionActions();
   $("explorer-error").hidden = true;
   window.DeckardReportActions.openFolders(tokens, (error) => {
     explorerOpening = false;
     $("explorer-error").textContent = error;
     $("explorer-error").hidden = !error;
-    updateExplorer();
+    updateSelectionActions();
   });
 };
 function bytes(n) {
@@ -316,7 +321,7 @@ function locate(event) {
 }
 function inspect(hit) {
   if (!hit) return;
-  updateExplorer(hit);
+  updateSelectionActions(hit);
   $("explorer-error").hidden = true;
   $("freeze-selection").disabled = false;
   const d = $("details");
@@ -374,7 +379,6 @@ function inspect(hit) {
         "coverage",
       ),
     );
-  if (!c.overlap) d.append(button("Open comparison", () => openCell(hit)));
 }
 function freezeSelection(value) {
   frozen = value && Boolean(hover);
@@ -479,7 +483,7 @@ async function load() {
   $("details").replaceChildren();
   $("selection").textContent = "—";
   hover = null;
-  updateExplorer();
+  updateSelectionActions();
   $("explorer-error").hidden = true;
   freezeSelection(false);
   if (coveredMetric !== state.metric) {
