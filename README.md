@@ -70,6 +70,12 @@ double-click a cell to explore both axes. Small items remain accessible through
 expandable remainder bands and the item list.
 
 The desktop and report viewer use compact industrial panels and a dark matrix.
+**Settings → Theme** offers **Light**, **Dark**, and **System** (the default).
+The choice is saved and applies to the native app and embedded report together;
+System follows appearance changes automatically. Standalone browser reports
+have the same theme selector in Settings and remember the choice for that origin.
+Text colors meet WCAG AA contrast (at least 4.5:1), including matrix labels,
+which adapt to their heat-map background.
 **Settings → Block grid** toggles a fixed-pixel overlay, enabled by default;
 file and folder sizes determine the matrix geometry. Existing report data opens
 with the app's current viewer;

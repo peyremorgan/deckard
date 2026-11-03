@@ -80,7 +80,7 @@ def test_gui_local_scan_opens_embedded_map(app, tmp_path):
         until(app, lambda: window.web.url().host() == '127.0.0.1')
         ready = []
         def check():
-            window.web.page().runJavaScript("document.title + '|' + document.getElementById('loading').classList.contains('hidden')", lambda value: ready.append(value))
+            window.web.page().runJavaScript("document.title + '|' + document.getElementById('loading')?.classList.contains('hidden')", lambda value: ready.append(value))
         until(app, lambda: (check() or False) if not any(v == 'Deckard|true' for v in ready) else True, timeout=15)
         cfg = json.loads((window.current / 'job.json').read_text())
         assert cfg['status'] == 'complete' and cfg['report_ready']
@@ -237,3 +237,196 @@ def test_native_authentication_dialog_masks_secrets_and_defaults_to_no(app, tmp_
     finally:
         window.is_running = lambda: False
         window.close(); app.processEvents()
+
+
+def javascript(app, page, source):
+    result = []
+    page.runJavaScript(source, result.append)
+    until(app, lambda: bool(result))
+    return result[0]
+
+
+def test_theme_persistence_system_changes_and_invalid_settings(app, tmp_path, monkeypatch):
+    from deckard.theme import PALETTES
+    from PySide6.QtGui import QPalette
+    library = Library(tmp_path / 'library')
+    preferences = library.root / 'preferences.json'
+    preferences.write_text(json.dumps({'theme': 'invalid', 'other': True}))
+    window = MainWindow(library)
+    try:
+        assert window.appearance.preference == 'system'
+        monkeypatch.setattr(window.appearance, 'system_scheme', lambda: Qt.ColorScheme.Dark)
+        app.styleHints().colorSchemeChanged.emit(Qt.ColorScheme.Dark)
+        assert window.appearance.resolved == 'dark'
+        window.theme_actions['light'].trigger()
+        assert app.palette().color(QPalette.ColorRole.Window).name() == PALETTES['light']['face']
+        app.styleHints().colorSchemeChanged.emit(Qt.ColorScheme.Dark)
+        assert window.appearance.resolved == 'light'
+        window.appearance.setPreference('invalid')
+        assert window.appearance.preference == 'light'
+        assert json.loads(preferences.read_text()) == {'theme': 'light', 'other': True}
+        window.theme_actions['system'].trigger()
+        assert window.appearance.resolved == 'dark'
+        monkeypatch.setattr(window.appearance, 'system_scheme', lambda: Qt.ColorScheme.Light)
+        app.styleHints().colorSchemeChanged.emit(Qt.ColorScheme.Light)
+        assert window.appearance.resolved == 'light'
+        window.theme_actions['dark'].trigger()
+        assert sum(action.isChecked() for action in window.theme_actions.values()) == 1
+    finally:
+        window.close(); app.processEvents()
+    reopened = MainWindow(library)
+    try:
+        assert reopened.appearance.snapshot() == {'preference': 'dark', 'resolved': 'dark'}
+        assert reopened.theme_actions['dark'].isChecked()
+    finally:
+        reopened.close(); app.processEvents()
+
+
+def test_embedded_theme_sync_reload_and_matrix_contrast(app, tmp_path):
+    root = tmp_path / 'source'; root.mkdir()
+    (root / 'A').mkdir(); (root / 'B').mkdir()
+    (root / 'A/copy').write_bytes(b'actual file contents')
+    (root / 'B/copy').write_bytes(b'actual file contents')
+    library = Library(tmp_path / 'library')
+    window = MainWindow(library); window.show()
+    def ready():
+        return javascript(app, window.web_page,
+            "Boolean(window.DeckardTheme && document.getElementById('loading')?.classList.contains('hidden'))")
+    try:
+        window.theme_actions['dark'].trigger()
+        window.local_path.setText(str(root)); window.start_new()
+        until(app, lambda: window.process is not None and window.process.state().value == 0, timeout=30)
+        until(app, lambda: window.web.url().host() == '127.0.0.1')
+        until(app, ready)
+        assert javascript(app, window.web_page, 'document.documentElement.dataset.theme') == 'dark'
+        # The web control updates the native menu and the durable desktop preference.
+        javascript(app, window.web_page, "document.getElementById('theme').value = 'light'; document.getElementById('theme').dispatchEvent(new Event('change')); true")
+        until(app, lambda: window.appearance.preference == 'light')
+        assert window.theme_actions['light'].isChecked()
+        assert json.loads((library.root / 'preferences.json').read_text())['theme'] == 'light'
+        window.theme_actions['dark'].trigger()
+        until(app, lambda: javascript(app, window.web_page, 'document.documentElement.dataset.theme') == 'dark')
+        assert javascript(app, window.web_page, "document.getElementById('theme').value") == 'dark'
+        # Every sampled heat color, including the old failing mid-blue, has readable text.
+        assert javascript(app, window.web_page, """(() => {
+            function lum(hex) {
+                const c = hex.match(/[0-9a-f]{2}/gi).map(h => parseInt(h, 16) / 255)
+                    .map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
+                return c[0] * .2126 + c[1] * .7152 + c[2] * .0722;
+            }
+            const backgrounds = Array.from({length: 1001}, (_, i) => heat(i / 1000));
+            backgrounds.push('#7d5cc5', '#172333');
+            return Math.min(...backgrounds.map(bg => {
+                const a = lum(bg), b = lum(contrastText(bg));
+                return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+            }));
+        })()""") >= 4.5
+        loaded = []
+        window.web.loadFinished.connect(loaded.append)
+        window.web.reload()
+        until(app, lambda: bool(loaded))
+        assert loaded[-1]
+        until(app, ready)
+        assert javascript(app, window.web_page, 'document.documentElement.dataset.theme') == 'dark'
+        from PySide6.QtTest import QTest
+        QTest.qWait(150)
+        window.grab().save(str(tmp_path / 'dark-theme.png'))
+        window.theme_actions['light'].trigger()
+        until(app, lambda: javascript(app, window.web_page, 'document.documentElement.dataset.theme') == 'light')
+        QTest.qWait(150)
+        window.grab().save(str(tmp_path / 'light-theme.png'))
+        verify_standalone_themes(app, window.web.url(), tmp_path)
+    finally:
+        window.close(); app.processEvents()
+
+
+def report_contrast_violations(app, page):
+    """Check rendered text against the background it actually inherits."""
+    return json.loads(javascript(app, page, """(() => {
+        document.getElementById('settings').open = true;
+        const rgb = value => value.match(/[\\d.]+/g).map(Number);
+        const blend = (top, bottom) => top.slice(0, 3).map((c, i) =>
+            c * (top[3] ?? 1) + bottom[i] * (1 - (top[3] ?? 1)));
+        const lum = c => c.slice(0, 3).map(v => v / 255)
+            .map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
+            .reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
+        const failures = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+            const node = walker.currentNode, parent = node.parentElement;
+            if (!node.textContent.trim() || !parent.getClientRects().length ||
+                !parent.checkVisibility({visibilityProperty: true})) continue;
+            const ancestors = [];
+            for (let e = parent; e; e = e.parentElement) ancestors.unshift(e);
+            const background = ancestors.reduce((bg, e) =>
+                blend(rgb(getComputedStyle(e).backgroundColor), bg), [255, 255, 255]);
+            const ink = blend(rgb(getComputedStyle(parent).color), background);
+            const a = lum(ink), b = lum(background), ratio = (Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+            if (ratio < 4.5) failures.push({text: node.textContent.trim(), ratio});
+        }
+        return JSON.stringify(failures);
+    })()"""))
+
+
+def verify_standalone_themes(app, url, tmp_path):
+    from PySide6.QtWebEngineCore import QWebEngineScript
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+    from PySide6.QtTest import QTest
+    from PySide6.QtCore import QUrl, QUrlQuery
+    url = QUrl(url)
+    query = QUrlQuery(url); query.removeAllQueryItems('embedded'); url.setQuery(query)
+    browser = QWebEngineView(); browser.resize(1360, 960); browser.show()
+    page = browser.page()
+    media = QWebEngineScript()
+    media.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+    media.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+    media.setSourceCode('''window.testMedia = new EventTarget(); window.testMedia.matches = false;
+        window.matchMedia = () => window.testMedia;''')
+    page.scripts().insert(media)
+    loaded = []
+    browser.loadFinished.connect(loaded.append)
+    def load():
+        loaded.clear(); browser.load(url)
+        until(app, lambda: bool(loaded))
+        assert loaded[-1]
+        until(app, lambda: javascript(app, page,
+            "Boolean(window.DeckardTheme && document.getElementById('loading')?.classList.contains('hidden'))"))
+    def choose(mode):
+        javascript(app, page, "document.getElementById('theme').value = " + json.dumps(mode) +
+            "; document.getElementById('theme').dispatchEvent(new Event('change')); true")
+    try:
+        load()
+        for mode in ('light', 'dark'):
+            choose(mode)
+            assert javascript(app, page, 'document.documentElement.dataset.theme') == mode
+            # Include dynamic inspector content and keeper badges in the audit.
+            javascript(app, page, "inspect({axis: 'x', index: 0}); document.getElementById('covered-load').click(); true")
+            until(app, lambda: javascript(app, page, "!document.getElementById('covered-load').disabled"))
+            javascript(app, page, "document.querySelector('#covered-list button').click(); true")
+            until(app, lambda: javascript(app, page, "!document.querySelector('#covered-list button').disabled"))
+            assert report_contrast_violations(app, page) == []
+            javascript(app, page, "inspect({a: 0, b: 1}); true")
+            assert report_contrast_violations(app, page) == []
+            QTest.qWait(150)
+            browser.grab().save(str(tmp_path / ('browser-' + mode + '.png')))
+        load()
+        assert javascript(app, page, "document.getElementById('theme').value") == 'dark'
+        assert javascript(app, page, 'document.documentElement.dataset.theme') == 'dark'
+        # Simulate a browser media-query change while System is selected.
+        choose('system')
+        assert javascript(app, page, 'document.documentElement.dataset.theme') == 'light'
+        javascript(app, page, "testMedia.matches = true; testMedia.dispatchEvent(new Event('change')); true")
+        assert javascript(app, page, 'document.documentElement.dataset.theme') == 'dark'
+        choose('light')
+        javascript(app, page, "testMedia.dispatchEvent(new Event('change')); true")
+        assert javascript(app, page, 'document.documentElement.dataset.theme') == 'light'
+        # A blocked storage API must not prevent report startup or theme changes.
+        blocked = QWebEngineScript()
+        blocked.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        blocked.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        blocked.setSourceCode("Object.defineProperty(window, 'localStorage', {get() {throw new Error('blocked');}});")
+        page.scripts().insert(blocked)
+        load(); choose('dark')
+        assert javascript(app, page, 'document.documentElement.dataset.theme') == 'dark'
+    finally:
+        from shiboken6 import delete
+        browser.close(); delete(browser); app.processEvents()

@@ -166,7 +166,7 @@ class ReportTests(unittest.TestCase):
         self.add(b'A/<img onerror="x">\xff', 10, content='x')
         self.add(b'B/copy', 10, content='x')
         model = self.generate()
-        first = {name: (self.output / name).read_bytes() for name in ('manifest.json', 'root.json', 'report.sqlite3')}
+        first = {name: (self.output / name).read_bytes() for name in ('manifest.json', 'root.json', 'report.sqlite3', 'theme.js')}
         before = self.index.read_bytes()
         again = self.base / 'again'
         build(self.index, again, progress=lambda _: None)
@@ -245,9 +245,14 @@ class ReportTests(unittest.TestCase):
                 self.assertIn(b'Deckard', html)
                 self.assertIn(b'id="metric"', html)
                 self.assertIn(b'id="settings"', html)
+                self.assertIn(b'id="theme"', html)
+                self.assertIn(b'/theme.js', html)
                 self.assertIn(b'id="sectors" type="checkbox" checked', html)
                 self.assertNotIn(b'Archived UI', html)
                 self.assertIn("default-src 'self'", response.headers['Content-Security-Policy'])
+            with urlopen(url + 'theme.js') as response:
+                self.assertIn(b'prefers-color-scheme', response.read())
+                self.assertIn('text/javascript', response.headers['Content-Type'])
             self.assertEqual((self.output / 'index.html').read_bytes(), archived_html)
             for suffix, status in (('report.sqlite3', 404), ('api/view?metric=invalid', 400)):
                 with self.assertRaises(HTTPError) as error:

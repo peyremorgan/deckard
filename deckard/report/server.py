@@ -56,12 +56,12 @@ def serve(directory, port=8765, open_browser=False):
                 elif parsed.path == '/api/manifest':
                     data = json_bytes(model.manifest())
                     content_type = 'application/json'
-                elif parsed.path in ('/', '/index.html', '/app.js', '/style.css'):
+                elif parsed.path in ('/', '/index.html', '/app.js', '/theme.js', '/style.css'):
                     name = 'index.html' if parsed.path == '/' else parsed.path[1:]
                     # Use the app's current UI for archived reports as well;
                     # only report data comes from the selected snapshot.
                     data = (Path(__file__).parent / 'web' / name).read_bytes()
-                    content_type = {'index.html': 'text/html', 'app.js': 'text/javascript',
+                    content_type = {'index.html': 'text/html', 'app.js': 'text/javascript', 'theme.js': 'text/javascript',
                                     'style.css': 'text/css'}[name]
                 else:
                     self.send_error(404)

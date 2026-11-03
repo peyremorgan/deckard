@@ -72,6 +72,15 @@ function mix(a, b, t) {
       .join("")
   );
 }
+// Choose the stronger text contrast for every possible heat-map color.
+function contrastText(background) {
+  const rgb = background.match(/[0-9a-f]{2}/gi).map((hex) => {
+    const channel = parseInt(hex, 16) / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+  return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? "#000000" : "#ffffff";
+}
 function heat(value) {
   const stops = [[21,42,72], [40,101,170], [41,191,213], [228,203,101], [235,128,66]];
   const position = Math.max(0, Math.min(1, value)) * (stops.length - 1);
@@ -124,11 +133,12 @@ function draw() {
       )
         continue;
       const cell = view.cells[a][b];
-      ctx.fillStyle = cell.overlap
+      const cellColor = cell.overlap
         ? "#172333"
         : cell.x_in_single || cell.y_in_single
           ? "#7d5cc5"
           : heat(cell.similarity);
+      ctx.fillStyle = cellColor;
       ctx.fillRect(x, y, cw, ch);
       if ($("sectors").checked && !cell.overlap) {
         ctx.fillStyle = sectorGrid;
@@ -153,15 +163,18 @@ function draw() {
         ctx.restore();
       }
       if (cw > 72 && ch > 43) {
-        ctx.fillStyle = !cell.overlap && !cell.x_in_single && !cell.y_in_single && cell.similarity > 0.4 ? "#081b2c" : "#e2eeff";
         ctx.textAlign = "center";
         ctx.font =
           "bold " + Math.min(17, cw / 5, ch / 3) + "px Menlo,Consolas,monospace";
-        ctx.fillText(
-          cell.overlap ? "—" : pct(cell.similarity),
-          x + cw / 2,
-          y + ch / 2 + 5,
-        );
+        const caption = cell.overlap ? "—" : pct(cell.similarity);
+        // An opaque backing keeps grid/hatching from reducing text contrast.
+        const captionWidth = ctx.measureText(caption).width;
+        const captionHeight = Math.min(17, cw / 5, ch / 3);
+        ctx.fillStyle = cellColor;
+        ctx.fillRect(x + (cw - captionWidth) / 2 - 3,
+          y + ch / 2 + 5 - captionHeight, captionWidth + 6, captionHeight + 4);
+        ctx.fillStyle = contrastText(cellColor);
+        ctx.fillText(caption, x + cw / 2, y + ch / 2 + 5);
       }
       if (hover && hover.a === a && hover.b === b) {
         ctx.strokeStyle = "#ffffc4";
@@ -648,6 +661,7 @@ $("metric").onchange = () =>
   });
 $("list-axis").onchange = list;
 $("covered-load").onclick = () => coveredFolders();
+window.addEventListener("themechange", draw);
 new ResizeObserver(draw).observe(canvas);
 fetch("/api/manifest")
   .then((r) => r.json())

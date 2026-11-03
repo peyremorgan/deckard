@@ -245,7 +245,7 @@ def build(index, output, progress=print):
             db.execute('INSERT INTO metadata VALUES (?,?)', ('_root_view', json_bytes(view).decode('ascii')))
             db.commit()
         artifacts = {'manifest.json': json_bytes(manifest), 'root.json': json_bytes(view)}
-        for name in ('index.html', 'app.js', 'style.css'):
+        for name in ('index.html', 'app.js', 'theme.js', 'style.css'):
             artifacts[name] = (Path(__file__).parent / 'web' / name).read_bytes()
         for name, data in artifacts.items():
             (output / (name + '.building')).write_bytes(data)
@@ -257,7 +257,7 @@ def build(index, output, progress=print):
             os.replace(output / (name + '.building'), output / name)
     except BaseException:
         temporary.unlink(missing_ok=True)
-        for name in ('index.html', 'app.js', 'style.css', 'root.json', 'manifest.json'):
+        for name in ('index.html', 'app.js', 'theme.js', 'style.css', 'root.json', 'manifest.json'):
             (output / (name + '.building')).unlink(missing_ok=True)
         raise
     progress('Report ready: ' + str(output))

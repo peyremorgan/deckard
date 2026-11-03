@@ -7,54 +7,22 @@ from pathlib import Path
 import sys
 import time
 
-from PySide6.QtCore import Qt, QProcess, QProcessEnvironment, QTimer, QUrl, Slot
-from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QPalette, QColor
+from PySide6.QtCore import Qt, QProcess, QProcessEnvironment, QTimer, QUrl, Slot, QFile, QIODevice
+from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QActionGroup, QColor
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QFrame, QLabel, QPushButton, QLineEdit, QFileDialog, QStackedWidget,
     QSpinBox, QFormLayout, QGroupBox, QListWidget, QListWidgetItem, QProgressBar,
     QPlainTextEdit, QMessageBox, QInputDialog, QScrollArea)
 from PySide6.QtWidgets import QDialog
-from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
+from PySide6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage, QWebEngineScript
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
+from PySide6.QtWebChannel import QWebChannel
+
+from .theme import ThemeManager, PALETTES
 from .auth import AuthBridge
 from .storage import Library, atomic_json
 from .ssh import validate_target
-
-
-STYLE = '''
-QMainWindow, QWidget#content { background: #c5c9ce; color: #141a22; }
-QWidget { font-size: 12px; }
-QFrame#sidebar { background: #b6bbc2; border-right: 1px solid #69717c; }
-QLabel#brand { background: #152c50; color: #fff; font-size: 16px; font-weight: 700; padding: 8px; }
-QLabel#section { background: #737e8d; color: #fff; font-size: 11px; font-weight: 700; padding: 4px 6px; }
-QLabel#title { font-size: 18px; font-weight: 700; }
-QLabel#path { font-family: monospace; font-size: 11px; color: #283848; }
-QLabel#metric { background: #101b2a; color: #6ae1bb; font-family: Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace; font-size: 20px; padding: 5px 8px; }
-QLabel#metric-label { font-size: 10px; font-weight: 700; color: #3f4a58; }
-QFrame#card, QGroupBox { background: #d6d9dd; border: 1px solid #858d97; border-top-color: #fff; border-left-color: #fff; border-radius: 0; }
-QGroupBox { padding: 16px 10px 10px; margin-top: 8px; } QGroupBox::title { subcontrol-origin: margin; left: 9px; padding: 0 4px; color: #172c4a; font-weight: 700; }
-QLineEdit, QSpinBox { background: #f6f7f8; color: #111820; border: 1px solid #fff; border-top-color: #687382; border-left-color: #687382; border-radius: 0; padding: 4px; min-height: 18px; selection-background-color: #244e89; selection-color: white; }
-QLineEdit:focus, QSpinBox:focus { border-color: #244e89; }
-QSpinBox { padding-right: 20px; }
-QSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right; width: 17px; height: 14px; background: #d6d9dd; border-left: 1px solid #858d97; }
-QSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 17px; height: 14px; background: #d6d9dd; border-left: 1px solid #858d97; }
-QSpinBox::up-arrow { image: url("@ASSETS@/spin-up.svg"); width: 7px; height: 5px; }
-QSpinBox::down-arrow { image: url("@ASSETS@/spin-down.svg"); width: 7px; height: 5px; }
-QPushButton { background: #d6d9dd; color: #111820; border: 1px solid #687382; border-top-color: #fff; border-left-color: #fff; border-radius: 0; padding: 5px 12px; min-height: 18px; }
-QPushButton:hover { background: #e3e6ea; }
-QPushButton:pressed, QPushButton#source-tab:checked { background: #aebdce; border: 1px solid #576b83; border-right-color: #fff; border-bottom-color: #fff; }
-QPushButton:disabled { color: #838b95; background: #c5c9ce; }
-QPushButton#primary { background: #234978; color: white; border-top-color: #6b8ebc; border-left-color: #6b8ebc; font-weight: 700; }
-QPushButton#primary:hover { background: #2c5c98; } QPushButton#primary:disabled { background: #8a98aa; }
-QListWidget#library { background: #eef0f2; color: #18212e; border: 1px solid #69717c; border-right-color: #fff; border-bottom-color: #fff; outline: none; }
-QListWidget#library::item { color: #18212e; padding: 7px 6px; border-bottom: 1px solid #c7cdd4; }
-QListWidget#library::item:selected { color: white; background: #234978; } QListWidget#library::item:hover:!selected { background: #dce4ef; }
-QProgressBar { border: 1px solid #748090; border-right-color: #fff; border-bottom-color: #fff; background: #e1e5e9; border-radius: 0; height: 14px; max-height: 14px; }
-QProgressBar::chunk { background: #234f94; width: 8px; margin: 1px; }
-QPlainTextEdit { background: #101b2a; color: #b8cbdc; border: 1px solid #737e8d; border-radius: 0; padding: 5px; font-family: monospace; font-size: 11px; }
-QSplitter::handle { background: #858d97; width: 1px; }
-'''.replace('@ASSETS@', str(Path(__file__).with_name('assets')))
 
 
 def label(value='', name=None):
@@ -133,9 +101,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('Deckard')
         self.resize(1360, 960)
         self.setMinimumSize(1000, 720)
-        self.setStyleSheet(STYLE)
+        self.appearance = ThemeManager(self.library.root / 'preferences.json', self)
         self._build()
         self._menus()
+        self.appearance.changed.connect(self.appearance_changed)
+        self.appearance_changed(self.appearance.preference, self.appearance.resolved)
         self.refresh_library()
         self.show_new()
         self.timer = QTimer(self)
@@ -222,6 +192,15 @@ class MainWindow(QMainWindow):
         profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.NoPersistentCookies)
         self.web = QWebEngineView()
         self.web_page = ReportPage(self.web); self.web.setPage(self.web_page)
+        self.web_channel = QWebChannel(self.web_page)
+        self.web_channel.registerObject('appearance', self.appearance)
+        self.web_page.setWebChannel(self.web_channel)
+        resource = QFile(':/qtwebchannel/qwebchannel.js')
+        if not resource.open(QIODevice.OpenModeFlag.ReadOnly):
+            raise RuntimeError('Qt WebChannel JavaScript is unavailable')
+        self.channel_source = bytes(resource.readAll()).decode('utf-8')
+        resource.close()
+        self.appearance_script = None
         self.detail_pages.addWidget(self.web)
         detail.addWidget(self.detail_pages, 1)
         self.pages.addWidget(self.detail_page)
@@ -238,6 +217,31 @@ class MainWindow(QMainWindow):
         diagnostics = QAction('Performance diagnostics', self)
         diagnostics.triggered.connect(self.show_diagnostics); menu.addAction(diagnostics)
         quit_action = QAction('Quit Deckard', self); quit_action.setShortcut(QKeySequence.StandardKey.Quit); quit_action.triggered.connect(self.close); menu.addAction(quit_action)
+
+        settings = self.menuBar().addMenu('Settings')
+        themes = settings.addMenu('Theme')
+        group = QActionGroup(self); group.setExclusive(True)
+        self.theme_actions = {}
+        for mode in ('light', 'dark', 'system'):
+            action = QAction(mode.title(), self); action.setCheckable(True)
+            action.triggered.connect(lambda checked, value=mode: self.appearance.setPreference(value))
+            group.addAction(action); themes.addAction(action)
+            self.theme_actions[mode] = action
+
+    def appearance_changed(self, preference, resolved):
+        self.theme_actions[preference].setChecked(True)
+        self.web_page.setBackgroundColor(QColor(PALETTES[resolved]['face']))
+        if self.appearance_script is not None:
+            self.web_page.scripts().remove(self.appearance_script)
+        script = QWebEngineScript()
+        script.setName('deckard-appearance')
+        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        script.setRunsOnSubFrames(False)
+        script.setSourceCode('window.deckardAppearance = ' + json.dumps(self.appearance.snapshot()) +
+                             ';\n' + self.channel_source)
+        self.web_page.scripts().insert(script)
+        self.appearance_script = script
 
     def source_kind(self, kind):
         self.local_button.setChecked(kind == 'local'); self.ssh_button.setChecked(kind == 'ssh')
@@ -604,13 +608,6 @@ class MainWindow(QMainWindow):
 def create_application(argv=None):
     app = QApplication.instance() or QApplication(sys.argv if argv is None else argv)
     app.setStyle('Fusion')
-    palette = QPalette()
-    for role, color in ((QPalette.ColorRole.Window, '#c5c9ce'), (QPalette.ColorRole.WindowText, '#141a22'),
-                        (QPalette.ColorRole.Base, '#f6f7f8'), (QPalette.ColorRole.Text, '#141a22'),
-                        (QPalette.ColorRole.Button, '#d6d9dd'), (QPalette.ColorRole.ButtonText, '#141a22'),
-                        (QPalette.ColorRole.Highlight, '#234978'), (QPalette.ColorRole.HighlightedText, '#ffffff')):
-        palette.setColor(role, QColor(color))
-    app.setPalette(palette)
     app.setApplicationName('Deckard'); app.setOrganizationName('Deckard')
     app.setApplicationDisplayName('Deckard')
     app.setWindowIcon(QIcon(str(Path(__file__).parent / 'assets/deckard.svg')))
