@@ -1,7 +1,7 @@
 # Deckard
 
-A Python desktop app for finding duplicate files in local folders and folders
-accessed through SSH. Native PySide6 controls manage scans; the embedded overlap
+Find duplicate files on your computer or a remote server to see where extra
+copies are taking up space. Native PySide6 controls manage scans; the embedded overlap
 map shows byte-weighted relationships between folders and files.
 
 ## Run
