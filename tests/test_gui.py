@@ -87,6 +87,7 @@ def test_gui_local_scan_opens_embedded_map(app, tmp_path):
         assert window.detail_pages.currentIndex() == 1
         assert 'embedded=1' in window.web.url().query()
         assert window.pause.isHidden()
+        verify_map_selection_freeze(app, window.web)
         interaction = []
         window.web.page().runJavaScript("document.getElementById('zoom-in').click(); document.getElementById('zoom').textContent", interaction.append)
         until(app, lambda: bool(interaction))
@@ -244,6 +245,79 @@ def javascript(app, page, source):
     page.runJavaScript(source, result.append)
     until(app, lambda: bool(result))
     return result[0]
+
+
+def verify_map_selection_freeze(app, web):
+    """Keep a chosen comparison stable while crossing other cells to its controls."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+    page = web.page()
+
+    def js(source):
+        return javascript(app, page, source)
+
+    def move(a, b, shift=False):
+        return js(f"""(() => {{
+            const r = canvas.getBoundingClientRect();
+            canvas.dispatchEvent(new PointerEvent('pointermove', {{
+                shiftKey: {json.dumps(shift)},
+                clientX: r.left + layout.band + panX +
+                    (layout.xx[{a}][0] + layout.xx[{a}][1]) / 2 * layout.side * zoom,
+                clientY: r.top + layout.band + panY +
+                    (layout.yy[{b}][0] + layout.yy[{b}][1]) / 2 * layout.side * zoom
+            }}));
+            return document.getElementById('selection').textContent;
+        }})()""")
+
+    def key(value, code=''):
+        js("canvas.focus(); canvas.dispatchEvent(new KeyboardEvent('keydown', " +
+           json.dumps(dict(key=value, code=code, bubbles=True, cancelable=True)) + ")); true")
+
+    assert js("document.getElementById('freeze-selection').disabled")
+    assert move(0, 1) == 'A × B'
+    assert move(1, 0, shift=True) == 'A × B'
+    # Releasing Shift resumes ordinary hover without a persistent freeze.
+    assert js("document.getElementById('freeze-selection').getAttribute('aria-pressed')") == 'false'
+    assert move(1, 0) == 'B × A'
+    assert move(0, 1) == 'A × B'
+    js("document.getElementById('freeze-selection').click(); true")
+    assert move(1, 0) == 'A × B'
+    # Axis bands must not replace a frozen cell either.
+    assert js("""canvas.dispatchEvent(new PointerEvent('pointermove', {
+        clientX: canvas.getBoundingClientRect().left + layout.band + 5,
+        clientY: canvas.getBoundingClientRect().top + 5
+    })); document.getElementById('selection').textContent""") == 'A × B'
+    assert js("document.getElementById('freeze-selection').getAttribute('aria-pressed')") == 'true'
+    js("document.getElementById('freeze-selection').click(); true")
+    assert move(1, 0) == 'B × A'
+    key(' ', 'Space')
+    assert move(0, 1) == 'B × A'
+    js("document.getElementById('zoom-in').click(); true")
+    key('Escape')
+    assert js("document.getElementById('zoom').textContent") == '150%'
+    assert js("document.getElementById('freeze-selection').getAttribute('aria-pressed')") == 'false'
+    js("document.getElementById('fit').click(); true")
+    assert move(0, 1) == 'A × B'
+
+    # Exercise Shift+click through real pointer capture, without navigating.
+    point = json.loads(js("""JSON.stringify((() => {
+        const r = canvas.getBoundingClientRect();
+        return [r.left + layout.band + (layout.xx[0][0] + layout.xx[0][1]) / 2 * layout.side,
+                r.top + layout.band + (layout.yy[1][0] + layout.yy[1][1]) / 2 * layout.side];
+    })())"""))
+    QTest.mouseClick(web.focusProxy(), Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.ShiftModifier, QPoint(round(point[0]), round(point[1])))
+    until(app, lambda: js("document.getElementById('freeze-selection').getAttribute('aria-pressed')") == 'true')
+    assert move(1, 0) == 'A × B'
+    # The retained button must open the frozen comparison, then clear its freeze.
+    js("document.querySelector('#details button').click(); true")
+    until(app, lambda: js("document.getElementById('loading').classList.contains('hidden')"))
+    assert js("document.getElementById('xpath').textContent") == 'X: A'
+    assert js("document.getElementById('ypath').textContent") == 'Y: B'
+    assert js("document.getElementById('freeze-selection').disabled")
+    assert js("document.getElementById('freeze-selection').getAttribute('aria-pressed')") == 'false'
+    js("document.getElementById('back').click(); true")
+    until(app, lambda: js("document.getElementById('loading').classList.contains('hidden')"))
 
 
 def confirm_removal(window, answer=QMessageBox.StandardButton.Yes):

@@ -34,7 +34,7 @@
           <h2 class="panel-title">DUPLICATE MATRIX</h2>
           <div class="axis-paths"><span id="xpath">X: /</span><span id="ypath">Y: /</span></div>
           <div class="map-wrap" id="map-wrap">
-            <canvas id="map" aria-label="Zoomable duplicate similarity matrix" tabindex="0" title="Wheel: zoom · Drag: pan · Click: open comparison"></canvas>
+            <canvas id="map" aria-label="Zoomable duplicate similarity matrix" aria-describedby="selection-hint" tabindex="0" title="Wheel: zoom · Drag: pan · Click: open comparison · Hold Shift: pause hover · Shift+click or Space: freeze selection · Escape: resume hover"></canvas>
             <button id="matrix-back" type="button" aria-label="Back to the previous matrix view" title="Back to the previous matrix view" disabled><span aria-hidden="true">←</span><small>Back</small></button>
             <div class="loading" id="loading"><span></span>Loading comparison…</div>
           </div>
@@ -47,6 +47,10 @@
           <section class="inspector">
             <h2 class="panel-title">SELECTION</h2>
             <h3 id="selection">—</h3>
+            <div class="selection-controls">
+              <button id="freeze-selection" type="button" aria-pressed="false" disabled>Freeze selection</button>
+              <p id="selection-hint" aria-live="polite">Hold Shift to pause hover. Shift+click or Space freezes details.</p>
+            </div>
             <div id="details"></div>
           </section>
           <section class="legend">

@@ -21,6 +21,7 @@ let view,
   manifest,
   layout,
   hover,
+  frozen = false,
   zoom = 1,
   panX = 0,
   panY = 0,
@@ -282,6 +283,7 @@ function locate(event) {
 }
 function inspect(hit) {
   if (!hit) return;
+  $("freeze-selection").disabled = false;
   const d = $("details");
   d.replaceChildren();
   if (hit.axis) {
@@ -338,6 +340,15 @@ function inspect(hit) {
       ),
     );
   if (!c.overlap) d.append(button("Open comparison", () => openCell(hit)));
+}
+function freezeSelection(value) {
+  frozen = value && Boolean(hover);
+  $("freeze-selection").textContent = frozen ? "Resume hover" : "Freeze selection";
+  $("freeze-selection").setAttribute("aria-pressed", String(frozen));
+  $("freeze-selection").disabled = !hover;
+  $("selection-hint").textContent = frozen
+    ? "Selection frozen. Press Escape to resume hover."
+    : "Hold Shift to pause hover. Shift+click or Space freezes details.";
 }
 function setAxis(axis, item) {
   state[axis] = item.token;
@@ -432,6 +443,8 @@ async function load() {
   $("matrix-back").disabled = !history.length;
   $("details").replaceChildren();
   $("selection").textContent = "—";
+  hover = null;
+  freezeSelection(false);
   if (coveredMetric !== state.metric) {
     $("covered-list").replaceChildren();
     $("covered-load").textContent = "Find folders";
@@ -443,7 +456,6 @@ async function load() {
     if (!response.ok) throw new Error(data.error);
     if (id !== request) return;
     view = data;
-    hover = null;
     $("metric").value = state.metric;
     $("xpath").textContent =
       "X: " +
@@ -573,7 +585,10 @@ canvas.addEventListener("pointermove", (event) => {
     draw();
     return;
   }
+  if (frozen || event.shiftKey) return;
   const hit = locate(event);
+  // Keep the last selection available when moving off the matrix.
+  if (!hit) return;
   if (JSON.stringify(hit) !== JSON.stringify(hover)) {
     hover = hit;
     inspect(hit);
@@ -597,6 +612,13 @@ canvas.addEventListener("pointerup", (event) => {
     hit = dragging.hit;
   dragging = null;
   if (!click || !hit) return;
+  if (event.shiftKey) {
+    hover = hit;
+    inspect(hit);
+    freezeSelection(true);
+    draw();
+    return;
+  }
   if (hit.axis)
     navigate(() => setAxis(hit.axis, view[hit.axis].items[hit.index]));
   else openCell(hit);
@@ -618,13 +640,28 @@ canvas.addEventListener(
   { passive: false },
 );
 canvas.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" || event.key === "0") fit();
+  if ((event.key === "Escape" && !frozen) || event.key === "0") fit();
   if (event.key === "+" || event.key === "=") zoomAt(zoom * 1.5);
   if (event.key === "-") zoomAt(zoom / 1.5);
   if (event.key === "Backspace" && history.length) {
     event.preventDefault();
     Object.assign(state, history.pop());
     load();
+  }
+});
+$("freeze-selection").onclick = () => freezeSelection(!frozen);
+document.addEventListener("keydown", (event) => {
+  if (event.defaultPrevented || event.repeat) return;
+  if (event.key === "Escape" && frozen) {
+    event.preventDefault();
+    freezeSelection(false);
+  } else if (
+    event.code === "Space" && hover && !event.ctrlKey && !event.metaKey && !event.altKey &&
+    (event.target === canvas ||
+      (event.target === document.body && canvas.matches(":hover")))
+  ) {
+    event.preventDefault();
+    freezeSelection(!frozen);
   }
 });
 $("fit").onclick = fit;

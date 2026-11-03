@@ -112,6 +112,9 @@ canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-act
 .zoom-controls button { padding: 0 6px; min-height: 20px; font-size: 13px; }
 aside { display: grid; gap: 8px; max-width: 350px; }
 h3 { font: bold 12px Consolas, Menlo, monospace; overflow-wrap: anywhere; margin: 10px; }
+.selection-controls { padding: 0 10px 10px; }
+#freeze-selection[aria-pressed="true"] { background: var(--pressed); border-color: var(--focus); }
+#selection-hint { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
 #details { padding: 0 10px 10px; font-size: 11px; }
 #details:empty { display: none; }
 #details dl { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin: 0 0 10px; }

@@ -72,6 +72,13 @@ logical-size toggle. Matched mass is summed per content group as
 Scroll or use +/- to zoom, drag to pan, click a band to navigate one axis, and
 click a cell to explore both axes. Small items remain accessible through
 expandable remainder bands and the item list.
+Hold **Shift** to pause hover while moving to the right panel. Release it outside
+the map to interact with the current details; hover resumes when you move over
+the map without Shift.
+Shift+click a cell or axis band to freeze its selection, then move to the right
+panel to use **Open comparison** or read its details. **Space** over the map or
+**Freeze selection** also freezes the current selection; **Escape** or
+**Resume hover** restores hover updates. Opening a new view clears the freeze.
 
 The desktop and report viewer use compact industrial panels and a dark matrix.
 **Settings → Theme** offers **Light**, **Dark**, and **System** (the default).
