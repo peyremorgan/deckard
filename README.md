@@ -66,7 +66,7 @@ logical-size toggle. Matched mass is summed per content group as
 `min(bytes in A, bytes in B)`. Color intensity is
 `matched_bytes / sqrt(size_A * size_B)`, matching the original geometric formula.
 Scroll or use +/- to zoom, drag to pan, click a band to navigate one axis, and
-double-click a cell to explore both axes. Small items remain accessible through
+click a cell to explore both axes. Small items remain accessible through
 expandable remainder bands and the item list.
 
 The desktop and report viewer use compact industrial panels and a dark matrix.

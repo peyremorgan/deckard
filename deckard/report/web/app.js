@@ -596,13 +596,14 @@ canvas.addEventListener("pointerup", (event) => {
       Math.hypot(event.clientX - dragging.x, event.clientY - dragging.y) < 4,
     hit = dragging.hit;
   dragging = null;
-  if (click && hit && hit.axis)
+  if (!click || !hit) return;
+  if (hit.axis)
     navigate(() => setAxis(hit.axis, view[hit.axis].items[hit.index]));
+  else openCell(hit);
 });
 canvas.addEventListener("pointercancel", () => {
   dragging = null;
 });
-canvas.addEventListener("dblclick", (event) => openCell(locate(event)));
 canvas.addEventListener(
   "wheel",
   (event) => {
