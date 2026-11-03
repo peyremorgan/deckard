@@ -18,8 +18,8 @@ python3 -m venv .venv
 .venv/bin/python -m deckard
 ```
 
-On this Mac, `Deckard.app` is also a double-clickable launcher for the project’s
-virtual environment. Build it again with `.venv/bin/python tools/macos_launcher.py`.
+On macOS, `Deckard.app` is also a double-clickable launcher for the project’s
+virtual environment. Build it with `.venv/bin/python tools/macos_launcher.py`.
 Building the macOS launcher requires Apple's Command Line Tools (`xcrun clang`).
 
 Choose **Local folder** or **SSH folder**, then start a scan. For SSH, enter a
