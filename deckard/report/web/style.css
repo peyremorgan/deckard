@@ -100,6 +100,9 @@ select { background: var(--field); border-color: var(--line); }
 .axis-paths { display: flex; flex-direction: column; gap: 2px; padding: 5px 7px; font: 10px Consolas, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; min-height: 35px; }
 .map-wrap { position: relative; aspect-ratio: 1; margin: 0 5px; border: 1px solid #5d6c80; background: #0b111b; }
 canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+#matrix-back { position: absolute; top: 0; left: 0; width: var(--axis-band, 40px); height: var(--axis-band, 40px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; }
+#matrix-back:disabled { opacity: .45; background: var(--panel); border-color: var(--line); }
+#matrix-back small { font: 9px Consolas, Menlo, monospace; }
 .loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; color: #c4ddf5; background: #0b111bef; font: 12px Consolas, Menlo, monospace; }
 .loading.hidden { display: none; }
 .loading span { width: 10px; height: 10px; background: #32b9dc; animation: activity 1s steps(2, end) infinite; }

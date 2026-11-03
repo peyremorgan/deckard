@@ -107,6 +107,7 @@ function draw() {
   // Positive offsets would expose negative matrix coordinates.
   panX = Math.min(0, panX);
   panY = Math.min(0, panY);
+  $("matrix-back").style.setProperty("--axis-band", band + "px");
   ctx.fillStyle = "#0b111b";
   ctx.fillRect(0, 0, w, h);
   if (!view) return;
@@ -242,11 +243,6 @@ function draw() {
   ctx.strokeStyle = "#74859b";
   ctx.lineWidth = 1;
   ctx.strokeRect(band, band, side, side);
-  ctx.fillStyle = "#afc5e2";
-  ctx.font = "10px Menlo,Consolas,monospace";
-  ctx.textAlign = "center";
-  ctx.fillText("Y ↕", band * 0.45, band * 0.45);
-  ctx.fillText("X →", band * 0.45, band * 0.7);
   $("zoom").textContent = Math.round(zoom * 100) + "%";
 }
 function fit() {
@@ -433,6 +429,7 @@ async function load() {
   );
   $("loading").classList.remove("hidden");
   $("back").disabled = !history.length;
+  $("matrix-back").disabled = !history.length;
   $("details").replaceChildren();
   $("selection").textContent = "—";
   if (coveredMetric !== state.metric) {
@@ -650,7 +647,7 @@ $("swap").onclick = () =>
     [state.x, state.y] = [state.y, state.x];
     [state.xo, state.yo] = [state.yo, state.xo];
   });
-$("back").onclick = () => {
+$("matrix-back").onclick = $("back").onclick = () => {
   if (history.length) {
     Object.assign(state, history.pop());
     $("metric").value = state.metric;
