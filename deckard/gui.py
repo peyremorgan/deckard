@@ -440,6 +440,8 @@ class MainWindow(QMainWindow):
         self.jobs.blockSignals(True); self.jobs.clear()
         for job in self.library.jobs():
             name = Path(job['source']['root'].rstrip('/')).name or job['source']['root']
+            if job['source']['kind'] == 'ssh':
+                name += '\n' + job['source']['host']
             item = QListWidgetItem(name + '\n' + job.get('status', 'new').replace('_', ' ').title())
             item.setToolTip(location(job)); item.setData(Qt.ItemDataRole.UserRole, job['folder']); self.jobs.addItem(item)
             if job['folder'] == previous:
