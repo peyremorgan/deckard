@@ -3,6 +3,7 @@ import base64
 import contextlib
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import signal
@@ -53,6 +54,20 @@ class ReportTests(unittest.TestCase):
         self.db.commit()
         build(self.index, self.output, progress=lambda _: None)
         return Report(self.output / 'report.sqlite3', max_items=max_items)
+
+    def test_report_snapshot_is_synced_with_a_writable_handle(self):
+        self.add('A/copy', 10, content='copy')
+        fsync = os.fsync
+
+        def sync_writable(fd):
+            # Windows requires write access for the flush operation. A zero
+            # byte write checks the descriptor without changing the snapshot.
+            os.write(fd, b'')
+            fsync(fd)
+
+        with patch('deckard.report.model.os.fsync', side_effect=sync_writable) as synced:
+            self.generate()
+        synced.assert_called_once()
 
     @staticmethod
     def at(view, a, b):

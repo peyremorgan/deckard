@@ -34,7 +34,21 @@ def until(app, condition, timeout=20):
         if condition():
             return
         time.sleep(.01)
-    raise AssertionError('GUI condition timed out')
+    diagnostics = []
+    for window in app.topLevelWidgets():
+        if isinstance(window, MainWindow):
+            details = {'url': window.web.url().toString(), 'note': window.note.text(),
+                       'log': window.logs.toPlainText()}
+            if window.current and (window.current / 'job.json').exists():
+                details['job'] = json.loads((window.current / 'job.json').read_text())
+            if window.report_process is not None:
+                details['report_process'] = {
+                    'state': window.report_process.state().name,
+                    'error': window.report_process.errorString(),
+                    'exit_code': window.report_process.exitCode(),
+                }
+            diagnostics.append(details)
+    raise AssertionError('GUI condition timed out\n' + json.dumps(diagnostics, indent=2))
 
 
 def test_private_askpass_ipc_returns_secret_without_writing_it(app, tmp_path):

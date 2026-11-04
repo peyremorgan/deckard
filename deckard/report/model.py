@@ -250,7 +250,7 @@ def build(index, output, progress=print):
         for name, data in artifacts.items():
             (output / (name + '.building')).write_bytes(data)
         os.chmod(temporary, 0o600)
-        with temporary.open('rb') as stream:
+        with temporary.open('r+b') as stream:
             os.fsync(stream.fileno())
         os.replace(temporary, output / 'report.sqlite3')
         for name in artifacts:

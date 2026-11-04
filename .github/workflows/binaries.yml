@@ -50,7 +50,7 @@ jobs:
         run: python -m pytest -q
       - name: Run portable regression tests
         if: runner.os == 'Windows'
-        run: python -m pytest -q tests/test_diagnostics.py tests/test_theme.py tests/test_runtime.py
+        run: python -m pytest -q tests/test_diagnostics.py tests/test_theme.py tests/test_runtime.py tests/test_report.py -k "not test_http_api_assets_and_loopback_host_validation"
       - name: Build and archive
         run: python tools/build_binary.py
       - name: Test packaged application
