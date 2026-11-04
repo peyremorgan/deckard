@@ -813,7 +813,7 @@ class MainWindow(QMainWindow):
         self.report_buffer.extend(bytes(self.report_process.readAllStandardOutput()))
         while b'\n' in self.report_buffer:
             raw, _, rest = self.report_buffer.partition(b'\n'); self.report_buffer = bytearray(rest)
-            line = raw.decode('utf8', 'replace')
+            line = raw.decode('utf8', 'replace').rstrip('\r')
             if line.startswith('Deckard report: '):
                 url = QUrl(line.split(' ', 2)[2])
                 self.web_page.allowed_port = url.port()

@@ -3,11 +3,32 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
 from deckard.runtime import module_command
 from deckard.storage import Library
+
+
+@pytest.mark.parametrize('newline', [b'\n', b'\r\n'])
+def test_report_url_accepts_platform_line_endings(newline):
+    from deckard.gui import MainWindow
+
+    output = iter([b'Deckard report: http://127.0.0.1:', b'54321/' + newline])
+    loaded = []
+    window = SimpleNamespace(
+        report_buffer=bytearray(),
+        report_process=SimpleNamespace(readAllStandardOutput=lambda: next(output)),
+        web_page=SimpleNamespace(allowed_port=None),
+        web=SimpleNamespace(load=loaded.append),
+    )
+    MainWindow.read_report_url(window)
+    assert not loaded
+    MainWindow.read_report_url(window)
+    assert window.web_page.allowed_port == 54321
+    assert len(loaded) == 1
+    assert loaded[0].toString() == 'http://127.0.0.1:54321/?embedded=1'
 
 
 def test_source_commands_use_current_interpreter():
