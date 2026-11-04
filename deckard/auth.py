@@ -12,6 +12,8 @@ import threading
 
 from PySide6.QtCore import QObject, Signal
 
+from .runtime import module_command
+
 
 class AuthRequest:
     def __init__(self, prompt, kind, purpose='scan'):
@@ -30,11 +32,15 @@ class AuthBridge(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.runtime = tempfile.TemporaryDirectory(prefix='dk-auth-', dir='/tmp')
         self.token = secrets.token_hex(32)
         self.pending = set()
         self.lock = threading.Lock()
         self.closed = False
+        self.server = None
+        # SSH connection sharing and its private askpass bridge require POSIX.
+        if sys.platform == 'win32':
+            return
+        self.runtime = tempfile.TemporaryDirectory(prefix='dk-auth-', dir='/tmp')
         bridge = self
 
         class Handler(socketserver.StreamRequestHandler):
@@ -71,11 +77,12 @@ class AuthBridge(QObject):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.helper = Path(self.runtime.name) / 'askpass'
-        self.helper.write_text('#!/bin/sh\nexec ' + shlex.quote(sys.executable) + ' ' +
-                               shlex.quote(str(Path(__file__).with_name('askpass.py'))) + ' "$@"\n')
+        self.helper.write_text('#!/bin/sh\nexec ' + shlex.join(module_command('deckard.askpass')) + ' "$@"\n')
         self.helper.chmod(0o700)
 
     def environment(self):
+        if self.server is None:
+            return {}
         return {'SSH_ASKPASS': str(self.helper), 'SSH_ASKPASS_REQUIRE': 'force',
                 'DISPLAY': os.environ.get('DISPLAY') or 'deckard:0',
                 'DECKARD_AUTH_SOCKET': self.socket_path, 'DECKARD_AUTH_TOKEN': self.token}
@@ -91,6 +98,8 @@ class AuthBridge(QObject):
             return
         self.closed = True
         self.cancel_pending()
+        if self.server is None:
+            return
         self.server.shutdown(); self.server.server_close()
         self.thread.join(timeout=2)
         self.runtime.cleanup()

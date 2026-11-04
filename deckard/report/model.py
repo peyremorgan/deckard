@@ -214,7 +214,7 @@ def build(index, output, progress=print):
                 'skipped_entries': skipped_count, 'inventory_errors': issue_count,
                 'hardlink_paths': hardlink_paths,
                 'blocked_entries': totals[0][4],
-                'size_scope': 'Regular-file st_blocks * 512, per path; directory metadata excluded.',
+                'size_scope': 'Regular-file allocated bytes per path (POSIX st_blocks * 512 or Windows compressed-file size); directory metadata excluded.',
                 'coverage_scope': 'SHA-256 file-content coverage, or native identity for hardlink aliases; names, layout, ACLs and xattrs are not compared.',
                 'shared_bytes': 'Sum over matching contents of min(bytes in X, bytes in Y).',
                 'similarity': 'shared_bytes / sqrt(total_bytes_X * total_bytes_Y)',

@@ -47,6 +47,8 @@ class SSHFSMount:
         self.errors = bytearray()
 
     def start(self, target, root, environment, cancelled):
+        if sys.platform == 'win32':
+            raise RuntimeError('Opening SSH folders currently requires macOS or Linux.')
         sshfs = executable('sshfs')
         if not sshfs:
             setup = ('Install macFUSE and SSHFS from https://macfuse.io.' if sys.platform == 'darwin'

@@ -37,13 +37,19 @@ import base64
 import contextlib
 import ctypes
 import errno
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 import hashlib
 import json
 import os
 import random
 import re
-import resource
+try:
+    import resource
+except ImportError:
+    resource = None
 import signal
 import sqlite3
 import stat
@@ -286,7 +292,7 @@ class Profile(object):
                 gauges[name] = os.stat(os.path.join(self.state, b'index.sqlite3') + suffix).st_size
             except OSError:
                 pass
-        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss if resource else 0
         peak_bytes = rss if sys.platform == 'darwin' else rss * 1024
         physical_io, io_rates = {}, {}
         if sys.platform.startswith('linux'):
@@ -629,9 +635,15 @@ def inventory_worker(root, root_dev):
         with span('task.directory', path):
             directory_fd = None
             try:
-                directory_fd = call('fs.directory.open', os.open, path,
-                                    os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0) | getattr(os, 'O_NOFOLLOW', 0))
-                st = call('fs.directory.fstat', os.fstat, directory_fd)
+                if sys.platform == 'win32':
+                    # The Windows CRT cannot open directory file descriptors.
+                    st = call('fs.directory.stat', os.lstat, path)
+                    if getattr(st, 'st_file_attributes', 0) & 0x400:
+                        raise OSError('directory is a reparse point')
+                else:
+                    directory_fd = call('fs.directory.open', os.open, path,
+                                        os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0) | getattr(os, 'O_NOFOLLOW', 0))
+                    st = call('fs.directory.fstat', os.fstat, directory_fd)
                 if not stat.S_ISDIR(st.st_mode) or st.st_dev != root_dev:
                     raise OSError('directory is a symlink, replaced, or on another filesystem')
                 # Linux/Python 2 accepts /proc/self/fd paths, not directory FDs.
@@ -644,22 +656,25 @@ def inventory_worker(root, root_dev):
                 for name in names:
                     if stop.is_set():
                         return
-                    child_relative = os.path.join(relative, name)
+                    # Report paths always use forward slashes, including on
+                    # Windows; native APIs accept these paths too.
+                    child_relative = relative + (b'/' if relative else b'') + name
                     child = os.path.join(root, child_relative)
                     try:
                         st = call('fs.entry.stat', os.lstat, os.path.join(lookup_root, name), _path=child)
                         count('entries')
                         if any(within(child, excluded) for excluded in SOURCE_EXCLUDES):
                             batch.append(('skipped', child_relative, 'deckard-local-state'))
+                        elif getattr(st, 'st_file_attributes', 0) & 0x400:
+                            batch.append(('skipped', child_relative, 'reparse-point'))
                         elif st.st_dev != root_dev:
                             count('other_filesystem_skips')
                             batch.append(('skipped', child_relative, 'other-filesystem'))
                         elif stat.S_ISDIR(st.st_mode):
                             batch.append(('directory', child_relative))
                         elif stat.S_ISREG(st.st_mode):
-                            blocks = getattr(st, 'st_blocks', None)
                             batch.append(('file', child_relative, fingerprint(st), st.st_nlink,
-                                          None if blocks is None else int(blocks) * 512))
+                                          allocated_size(child, st)))
                         else:
                             count('special_file_skips')
                             batch.append(('skipped', child_relative,
@@ -681,6 +696,28 @@ def inventory_worker(root, root_dev):
             # fit in one event instead of separate batch/done queue round trips.
             emit(('directory_done', directory_id, failed, relative, batch))
     return work
+
+
+def allocated_size(path, st):
+    blocks = getattr(st, 'st_blocks', None)
+    if blocks is not None:
+        return int(blocks) * 512
+    if sys.platform == 'win32':
+        # Includes compression and sparse-file storage without substituting
+        # logical sizes for allocated sizes in the report.
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        get_size = kernel.GetCompressedFileSizeW
+        get_size.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(wintypes.DWORD)]
+        get_size.restype = wintypes.DWORD
+        high = wintypes.DWORD()
+        ctypes.set_last_error(0)
+        low = get_size(os.fsdecode(path), ctypes.byref(high))
+        error = ctypes.get_last_error()
+        if low == 0xffffffff and error:
+            raise ctypes.WinError(error)
+        return (high.value << 32) | low
+    return None
 
 
 def inventory_batch_worker(root, root_dev):
@@ -929,7 +966,7 @@ def read_hash_file(root, row, stage, block):
     with span('task.hash', path, stage):
         if not hasattr(os, 'O_NOFOLLOW'):
             check(call('fs.file.stat', os.lstat, path), row)
-        fd = call('fs.open', os.open, path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) |
+        fd = call('fs.open', os.open, path, os.O_RDONLY | getattr(os, 'O_BINARY', 0) | getattr(os, 'O_NOFOLLOW', 0) |
                   getattr(os, 'O_NONBLOCK', 0))
         stream = os.fdopen(fd, 'rb')
         try:
@@ -1277,7 +1314,7 @@ def report(db, root, state, args, checkpoint):
         write_json(output, summary)
         call('report.flush', output.flush)
         call('report.fsync', os.fsync, output.fileno())
-    call('report.rename', os.rename, temporary, destination)
+    call('report.rename', getattr(os, 'replace', os.rename), temporary, destination)
     setmeta(db, 'phase', 'complete')
     checkpoint.tick(force=True)
     log('Report: %s; %s groups; complete=%s' % (display(destination), groups, summary['complete']))
@@ -1378,7 +1415,7 @@ def probe_hash_file(root, relative, limit, block):
     row = dict(zip(('size','mtime','ctime','dev','ino'), fingerprint(st)))
     digest, amount = hashlib.sha256(), 0
     with span('task.probe_hash', path):
-        fd = call('probe.open', os.open, path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+        fd = call('probe.open', os.open, path, os.O_RDONLY | getattr(os, 'O_BINARY', 0) | getattr(os, 'O_NOFOLLOW', 0))
         with os.fdopen(fd, 'rb') as stream:
             check(os.fstat(stream.fileno()), row)
             while amount < limit:
@@ -1532,6 +1569,9 @@ def probes(root, state, args):
 
 
 def within(path, root):
+    if sys.platform == 'win32':
+        path = os.path.normcase(os.path.normpath(path))
+        root = os.path.normcase(os.path.normpath(root))
     return path == root or path.startswith(root.rstrip(os.sep.encode('ascii')) + os.sep.encode('ascii'))
 
 
@@ -1635,7 +1675,11 @@ def main(argv=None):
     lock = open(os.path.join(state, b'scan.lock'), 'a')
     try:
         try:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if fcntl is None:
+                from deckard.locking import lock_exclusive
+                lock_exclusive(lock)
+            else:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except (IOError, OSError):
             parser.error('scanner/probe is already using this state directory; stop it before probing')
         if args.command == 'status':

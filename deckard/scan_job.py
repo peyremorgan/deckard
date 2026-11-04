@@ -1,7 +1,6 @@
 """Isolated, resumable scan process; Qt is deliberately not imported here."""
 import argparse
 import contextlib
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -18,6 +17,7 @@ from .remote import AgentlessSource
 from .ssh import SSHTransport
 from .storage import atomic_json, data_home
 from .report.model import build
+from .locking import lock_exclusive
 
 
 OUTPUT_LOCK = threading.Lock()
@@ -53,6 +53,12 @@ def run(folder, refresh=False):
     engine.CANCEL_EVENT = cancelled
     signal.signal(signal.SIGTERM, lambda *_: cancelled.set())
     signal.signal(signal.SIGINT, lambda *_: cancelled.set())
+    if sys.platform == 'win32':
+        # QProcess.terminate() cannot deliver a graceful signal on Windows.
+        def cancellation_input():
+            if sys.stdin.readline().strip() == 'cancel':
+                cancelled.set()
+        threading.Thread(target=cancellation_input, daemon=True).start()
     engine.log = lambda message: publish('log', message=message)
     original_call = engine.call
     original_connect = engine.connect
@@ -80,7 +86,7 @@ def run(folder, refresh=False):
     profile, source, originals, awake = None, None, None, None
     with (folder / 'scan.lock').open('a') as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_exclusive(lock)
         except OSError:
             publish('failed', message='This scan is already running in another process.', busy=True)
             return 2
@@ -104,6 +110,8 @@ def run(folder, refresh=False):
                             raise KeyboardInterrupt()
                         publish('phase', phase='Connecting' if target['kind'] == 'ssh' else 'Scanning')
                         if target['kind'] == 'ssh':
+                            if sys.platform == 'win32':
+                                raise ValueError('SSH scans currently require macOS or Linux.')
                             transport = SSHTransport(target['host'], target.get('user', ''),
                                                      target.get('port', 0), target.get('identity', ''), cancelled)
                             source = AgentlessSource(target['root'], transport)

@@ -8,9 +8,28 @@ copies are taking up space.
 Native PySide6 controls manage scans; the embedded overlap
 map shows byte-weighted relationships between folders and files.
 
+## Binary builds
+
+Every push to `main` builds standalone downloads in
+[GitHub Releases](https://github.com/peyremorgan/deckard/releases). Each commit
+gets a prerelease named **Main build `<commit>`**, with Windows x86-64, macOS
+Apple Silicon and Intel, and Linux x86-64 archives plus SHA-256 checksums.
+Python and Qt are included.
+
+Extract the entire archive, then open `Deckard.app` on macOS,
+`Deckard/Deckard.exe` on Windows, or `Deckard/Deckard` on Linux. Keep the bundle's
+other files beside the executable. CI builds on Windows Server 2022, macOS 15,
+and Ubuntu 24.04; older operating systems are not tested. Linux also needs the
+system GUI libraries listed in `.github/workflows/binaries.yml`.
+
+Windows supports local scans and report viewing. SSH scans and opening SSH
+folders currently require macOS or Linux. Windows reparse points (including
+junctions and cloud placeholders) are skipped and block complete-folder claims.
+The automatic builds are not Windows certificate signed or Apple notarized.
+
 ## Run
 
-Requires Python 3.10+ on macOS or Linux, and an OpenSSH client for remote scans.
+Requires Python 3.10+. Remote scans require macOS or Linux and an OpenSSH client.
 
 ```sh
 python3 -m venv .venv
@@ -57,6 +76,7 @@ OpenSSH's normal policy; changed host keys are never silently accepted.
 All indexes, diagnostics and report artifacts stay in:
 
 - macOS: `~/Library/Application Support/Deckard/scans/`
+- Windows: `%LOCALAPPDATA%\Deckard\scans\`
 - Linux: `$XDG_DATA_HOME/deckard/scans/` (default `~/.local/share/deckard/scans/`)
 
 `DECKARD_DATA_DIR` can override the client data directory. When a local source
@@ -162,6 +182,21 @@ report math, coverage, artifact determinism, HTTP routing and diagnostics.
 Desktop-specific tests cover streamed workers leaving no files, interruption
 and resume, source-state exclusion, askpass IPC and GUI scan/report integration.
 GUI tests use Qt's offscreen platform and an in-memory WebEngine cache.
+
+To build a standalone binary locally, activate a Python 3.12 virtual environment
+on the target operating system and run:
+
+```sh
+python -m pip install '.[dev,build]'
+python tools/build_binary.py
+python tools/check_binary.py
+```
+
+Archives and checksums appear in `release/`. The packaged smoke test extracts
+the archive outside the checkout, runs a local scan and refresh, and loads the
+embedded report. CI publishes a commit's prerelease only after all four builds
+pass. The workflow can also be started manually on `main`; rerunning a commit
+replaces its existing release assets.
 
 Every scan records sampled filesystem, hash, SQL, queue and SSH timings locally,
 with remote CPU and I/O counters streamed back by the worker. Use **File →

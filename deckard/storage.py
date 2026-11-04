@@ -1,6 +1,5 @@
 """Client-only scan library. Passwords and passphrases never enter this model."""
 import datetime
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -8,12 +7,16 @@ import shutil
 import sys
 import uuid
 
+from .locking import lock_exclusive
+
 
 def data_home():
     if os.environ.get('DECKARD_DATA_DIR'):
         return Path(os.environ['DECKARD_DATA_DIR']).expanduser()
     if sys.platform == 'darwin':
         return Path.home() / 'Library/Application Support/Deckard'
+    if sys.platform == 'win32':
+        return Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData/Local'))) / 'Deckard'
     return Path(os.environ.get('XDG_DATA_HOME', str(Path.home() / '.local/share'))) / 'deckard'
 
 
@@ -67,7 +70,19 @@ class Library:
             raise ValueError('Only scans in this library can be removed.')
         with (folder / 'scan.lock').open('a') as lock:
             try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
+                lock_exclusive(lock)
+            except OSError:
                 raise RuntimeError('This scan is still running. Stop it in its window before removing it.') from None
-            shutil.rmtree(folder)
+            if sys.platform != 'win32':
+                shutil.rmtree(folder)
+                return
+            # Windows cannot unlink an open lock file. Keep it until all other
+            # scan data is gone, so another process cannot acquire a new lock.
+            for path in folder.iterdir():
+                if path.name != 'scan.lock':
+                    if path.is_dir() and not path.is_symlink():
+                        shutil.rmtree(path)
+                    else:
+                        path.unlink()
+        (folder / 'scan.lock').unlink()
+        folder.rmdir()

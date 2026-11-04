@@ -29,6 +29,7 @@ from .storage import Library, atomic_json
 from .ssh import validate_target
 from .folders import RemoteFolders, selected_folders
 from .report.model import readonly
+from .runtime import module_command
 
 
 def label(value='', name=None):
@@ -283,6 +284,9 @@ class MainWindow(QMainWindow):
         self.source_pages = SourcePages()
         self.local_button.clicked.connect(lambda: self.source_kind('local'))
         self.ssh_button.clicked.connect(lambda: self.source_kind('ssh'))
+        if sys.platform == 'win32':
+            self.ssh_button.setEnabled(False)
+            self.ssh_button.setToolTip('SSH scans currently require macOS or Linux.')
         local = QWidget(); local_layout = QVBoxLayout(local); local_layout.setContentsMargins(0, 8, 0, 0); local_layout.setSpacing(10)
         local_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         local_layout.addWidget(label('Folder to scan'))
@@ -569,9 +573,10 @@ class MainWindow(QMainWindow):
         self.process = QProcess(self)
         # Own a separate process group so forced cancellation also closes the
         # SSH master and worker channels, even if the backend is unresponsive.
-        unix = QProcess.UnixProcessParameters()
-        unix.flags = QProcess.UnixProcessFlag.CreateNewSession | QProcess.UnixProcessFlag.ResetSignalHandlers
-        self.process.setUnixProcessParameters(unix)
+        if sys.platform != 'win32':
+            unix = QProcess.UnixProcessParameters()
+            unix.flags = QProcess.UnixProcessFlag.CreateNewSession | QProcess.UnixProcessFlag.ResetSignalHandlers
+            self.process.setUnixProcessParameters(unix)
         self.process.started.connect(lambda: self.capture_started())
         env = QProcessEnvironment.systemEnvironment()
         for key, value in self.auth.environment().items():
@@ -582,10 +587,10 @@ class MainWindow(QMainWindow):
         self.process.readyReadStandardError.connect(self.read_errors)
         self.process.finished.connect(self.scan_finished)
         self.process.errorOccurred.connect(self.scan_process_error)
-        args = ['-u', '-m', 'deckard.scan_job', '--job', str(folder)]
+        command = module_command('deckard.scan_job', '--job', str(folder))
         if refresh:
-            args.append('--refresh')
-        self.process.start(sys.executable, args)
+            command.append('--refresh')
+        self.process.start(command[0], command[1:])
         self.show_job(); self.refresh_library()
 
     def capture_started(self):
@@ -663,7 +668,10 @@ class MainWindow(QMainWindow):
             self.auth.cancel_pending('scan')
             self.phase.setText('Saving checkpoints…'); self.pause.setEnabled(False)
             proc = self.process
-            proc.terminate()
+            if sys.platform == 'win32':
+                proc.write(b'cancel\n')
+            else:
+                proc.terminate()
             QTimer.singleShot(15000, lambda: self.force_stop(proc))
 
     @staticmethod
@@ -671,7 +679,7 @@ class MainWindow(QMainWindow):
         if proc.state() != QProcess.ProcessState.NotRunning:
             pid = proc.processId()
             try:
-                if pid and os.getpgid(pid) == pid:
+                if sys.platform != 'win32' and pid and os.getpgid(pid) == pid:
                     os.killpg(pid, signal.SIGKILL)
                     return
             except ProcessLookupError:
@@ -759,7 +767,8 @@ class MainWindow(QMainWindow):
         process.setWorkingDirectory(str(Path(__file__).resolve().parents[1]))
         process.readyReadStandardOutput.connect(lambda: output.insertPlainText(bytes(process.readAllStandardOutput()).decode('utf8', 'replace')))
         process.readyReadStandardError.connect(lambda: output.insertPlainText(bytes(process.readAllStandardError()).decode('utf8', 'replace')))
-        process.start(sys.executable, ['-u', '-m', 'deckard.diagnostics', '--state-dir', str(self.current)])
+        command = module_command('deckard.diagnostics', '--state-dir', str(self.current))
+        process.start(command[0], command[1:])
         dialog.exec()
         if process.state() != QProcess.ProcessState.NotRunning:
             process.kill(); process.waitForFinished(3000)
@@ -785,7 +794,8 @@ class MainWindow(QMainWindow):
         self.report_process.readyReadStandardError.connect(lambda: self.append_log(log_folder, bytes(self.report_process.readAllStandardError()).decode('utf8', 'replace')))
         self.report_process.errorOccurred.connect(self.report_process_error)
         self.report_process.finished.connect(self.report_exited)
-        self.report_process.start(sys.executable, ['-u', '-m', 'deckard.report', 'serve', '--report-dir', str(folder), '--port', '0'])
+        command = module_command('deckard.report', 'serve', '--report-dir', str(folder), '--port', '0')
+        self.report_process.start(command[0], command[1:])
 
     def report_process_error(self, error):
         if error == QProcess.ProcessError.FailedToStart:

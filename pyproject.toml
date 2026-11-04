@@ -13,6 +13,7 @@ dependencies = ["PySide6>=6.8,<7"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+build = ["PyInstaller>=6.22.1,<7"]
 
 [project.gui-scripts]
 deckard = "deckard.gui:main"
