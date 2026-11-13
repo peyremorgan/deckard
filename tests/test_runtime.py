@@ -11,6 +11,24 @@ from deckard.runtime import module_command
 from deckard.storage import Library
 
 
+def test_report_server_startup_does_not_require_reverse_dns(tmp_path, monkeypatch, capsys):
+    import socket
+    from deckard.report import server
+
+    def unavailable_dns(*args):
+        raise AssertionError('Loopback report startup must not resolve a hostname')
+
+    listening = []
+    monkeypatch.setattr(socket, 'getfqdn', unavailable_dns)
+    monkeypatch.setattr(server.ThreadingHTTPServer, 'serve_forever',
+                        lambda http: listening.append((http.server_name, http.server_port)))
+    server.serve(tmp_path, port=0)
+    assert len(listening) == 1
+    name, port = listening[0]
+    assert name == 'localhost' and port > 0
+    assert capsys.readouterr().out == f'Deckard report: http://127.0.0.1:{port}/\n'
+
+
 @pytest.mark.parametrize('newline', [b'\n', b'\r\n'])
 def test_report_url_accepts_platform_line_endings(newline):
     from deckard.gui import MainWindow

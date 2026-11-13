@@ -2,6 +2,7 @@
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from socketserver import TCPServer
 import threading
 import time
 import traceback
@@ -9,6 +10,16 @@ from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
 from .model import Report, json_bytes
+
+
+class _LoopbackHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer.server_bind resolves the bound IP with socket.getfqdn().
+        # This viewer only listens on loopback; DNS must not delay its ready
+        # message when a machine's resolver is slow or unavailable.
+        TCPServer.server_bind(self)
+        self.server_name = 'localhost'
+        self.server_port = self.server_address[1]
 
 
 def serve(directory, port=8765, open_browser=False):
@@ -85,7 +96,7 @@ def serve(directory, port=8765, open_browser=False):
             self.end_headers()
             self.wfile.write(data)
 
-    server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+    server = _LoopbackHTTPServer(('127.0.0.1', port), Handler)
     url = 'http://127.0.0.1:{}/'.format(server.server_port)
     print('Deckard report: ' + url, flush=True)
     if open_browser:
